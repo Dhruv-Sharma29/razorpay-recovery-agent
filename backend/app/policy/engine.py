@@ -207,11 +207,11 @@ class RecoveryPolicyEngine:
         cat_policy = _CATEGORY_POLICIES[category]
 
         # --- Global stopping rule: amount cap ---
-        if amount > self._amount_limit:
+        if amount <= 0 or amount > self._amount_limit:
             return self._escalate(
                 category=category,
                 reason=(
-                    f"Transaction amount {amount} paise exceeds the automatic recovery "
+                    f"Transaction amount {amount} paise is invalid or exceeds the automatic recovery "
                     f"limit of {self._amount_limit} paise; escalating to manual review"
                 ),
                 rule_id="policy.guard.amount_cap",
@@ -222,11 +222,11 @@ class RecoveryPolicyEngine:
             )
 
         # --- Global stopping rule: hard cap on attempts ---
-        if attempt >= GLOBAL_MAX_ATTEMPTS:
+        if attempt <= 0 or attempt >= GLOBAL_MAX_ATTEMPTS:
             return self._escalate(
                 category=category,
                 reason=(
-                    f"Transaction has reached the global hard cap of "
+                    f"Transaction attempt {attempt} is invalid or has reached the global hard cap of "
                     f"{GLOBAL_MAX_ATTEMPTS} attempts; no further automatic recovery"
                 ),
                 rule_id="policy.guard.global_attempt_cap",

@@ -270,6 +270,18 @@ class RecoveryReasoner:
         Returns:
             A ``ReasoningResult`` — always safe to use.
         """
+        if policy_decision is None:
+            return ReasoningResult(
+                success=False,
+                recommendation="No action (Missing policy decision)",
+                explanation="Cannot reason about a missing policy decision. Escalation required.",
+                confidence=0.0,
+                model_id=self._model,
+                policy_action_allowed=False,
+                is_fallback=True,
+                error="policy_decision is None",
+            )
+
         user_prompt = _build_user_prompt(
             payment_event, classification, policy_decision
         )
