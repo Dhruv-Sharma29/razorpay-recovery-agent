@@ -323,15 +323,17 @@ Run the model:
 ollama run qwen3.5:latest
 ```
 
-### Start Backend
+### Backend Setup & Start
 
 ```bash
 cd backend
+python -m venv .venv
 source .venv/bin/activate
+pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
 
-### Start Frontend
+### Frontend Setup & Start
 
 ```bash
 cd frontend

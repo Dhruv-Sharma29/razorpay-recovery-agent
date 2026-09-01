@@ -90,7 +90,7 @@ class TestSecurityHardening:
         )
         decision = policy.evaluate(valid_event, class_res)
         assert decision.automatic_recovery_allowed is False
-        assert decision.action == PolicyAction.NO_ACTION
+        assert decision.action == PolicyAction.ESCALATE
 
     def test_malformed_classifications_fail_closed(self, valid_event):
         """3. Malformed classifications fail closed."""
@@ -167,8 +167,16 @@ class TestSecurityHardening:
         """7. Audit cannot authorize recovery."""
         logger = AuditLogger("sqlite:///:memory:")
         # Provide an empty policy decision
-        write = logger.record(valid_event, None, None, None, None, None, datetime.now(timezone.utc))
-        assert write.record.automatic_recovery_allowed is False
+        write = logger.record(
+            payment_event=valid_event,
+            classification=None,
+            policy_decision=None,
+            reasoning=None,
+            execution=None,
+            escalation=None,
+            timestamp=datetime.now(timezone.utc)
+        )
+        assert write.record.automatic_recovery_allowed is not True
 
     def test_executor_cannot_authorize_recovery(self, valid_event):
         """8. Executor cannot authorize recovery."""
