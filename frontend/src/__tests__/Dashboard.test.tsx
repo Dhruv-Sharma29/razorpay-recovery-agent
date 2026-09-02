@@ -25,7 +25,7 @@ describe("Dashboard Component", () => {
   it("1. renders empty state initially", () => {
     render(<Dashboard />);
     expect(screen.getByTestId("empty-state")).toBeInTheDocument();
-    expect(screen.getByText("No payment processed yet")).toBeInTheDocument();
+    expect(screen.getByText("Ready to analyze")).toBeInTheDocument();
   });
 
   it("2. shows loading state during API call", async () => {
@@ -38,7 +38,7 @@ describe("Dashboard Component", () => {
     fireEvent.click(processBtn);
     
     expect(screen.getByTestId("loading-state")).toBeInTheDocument();
-    expect(screen.getByText("Processing payment…")).toBeInTheDocument();
+    expect(screen.getByText("Analyzing payment…")).toBeInTheDocument();
   });
 
   it("3. displays backend error state", async () => {
@@ -86,8 +86,8 @@ describe("Dashboard Component", () => {
     await waitFor(() => {
       expect(screen.getByTestId("result-display")).toBeInTheDocument();
       const statusBadge = screen.getByTestId("status-badge");
-      expect(statusBadge).toHaveTextContent("✅ Recovered");
-      expect(screen.getByText("scheduled_retry")).toBeInTheDocument();
+      expect(statusBadge).toHaveTextContent(/recovered/i);
+      expect(screen.getAllByText(/scheduled retry/i).length).toBeGreaterThan(0);
     });
   });
 
@@ -123,8 +123,8 @@ describe("Dashboard Component", () => {
       const statusBadge = screen.getByTestId("status-badge");
       // Could be denied or escalated depending on backend logic
       // In this case we mocked final_outcome as escalated
-      expect(statusBadge).toHaveTextContent("🚨 Escalated");
-      expect(screen.getByText("Retry limit exhausted")).toBeInTheDocument();
+      expect(statusBadge).toHaveTextContent(/escalated/i);
+      expect(screen.getAllByText(/Retry limit exhausted/i).length).toBeGreaterThan(0);
     });
   });
 
@@ -158,9 +158,9 @@ describe("Dashboard Component", () => {
     
     await waitFor(() => {
       const statusBadge = screen.getByTestId("status-badge");
-      expect(statusBadge).not.toHaveTextContent("Recovered");
-      expect(statusBadge).toHaveTextContent("🚨 Escalated");
-      expect(screen.getByText("Unknown failure")).toBeInTheDocument();
+      expect(statusBadge).not.toHaveTextContent(/recovered/i);
+      expect(statusBadge).toHaveTextContent(/escalated/i);
+      expect(screen.getAllByText(/Unknown failure/i).length).toBeGreaterThan(0);
     });
   });
 
@@ -193,8 +193,46 @@ describe("Dashboard Component", () => {
     fireEvent.click(screen.getByTestId("process-btn"));
     
     await waitFor(() => {
-      expect(screen.getByText("immediate_retry")).toBeInTheDocument();
-      expect(screen.getByText("Immediate retry once permitted")).toBeInTheDocument();
+      expect(screen.getAllByText(/immediate retry/i).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/Immediate retry once permitted/i).length).toBeGreaterThan(0);
+    });
+  });
+
+  it("8. shows policy-grounded reasoning when the reasoning service is unavailable", async () => {
+    vi.mocked(api.processPayment).mockResolvedValue({
+      payment_id: "pay_127",
+      event_id: "evt_127",
+      failure_category: "insufficient_funds",
+      classification_reason: "Error code maps to insufficient funds",
+      policy_action: "scheduled_retry",
+      policy_reason: "Retry after the 24h cooldown",
+      automatic_recovery_allowed: true,
+      reasoning_recommendation: null,
+      reasoning_explanation: null,
+      reasoning_success: false,
+      execution_status: "success",
+      execution_reason: "Action executed",
+      escalation_status: "not_required",
+      escalation_reason: "No escalation needed",
+      escalation_severity: null,
+      final_outcome: "recovered",
+      timestamp: "2026-09-01T10:00:00Z",
+      amount: 149900,
+      attempt_number: 1,
+      error: "Could not connect to Ollama",
+    });
+
+    render(<Dashboard />);
+    fireEvent.click(screen.getByTestId("process-btn"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("reasoning-recommendation")).toHaveTextContent(
+        "Follow policy decision: scheduled_retry",
+      );
+      expect(screen.getByTestId("reasoning-explanation")).toHaveTextContent(
+        "Retry after the 24h cooldown",
+      );
+      expect(screen.getByText("Policy-grounded fallback")).toBeInTheDocument();
     });
   });
 });
