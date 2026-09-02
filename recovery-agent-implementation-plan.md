@@ -1,25 +1,17 @@
-# Failed-Payment & Subscription Recovery Agent — Implementation Plan v2
-### Track 03: AI Revenue Recovery | Razorpay Hackathon | Complete Build Plan
-### Goal: 1st place, not a passing grade
+# Failed-Payment & Subscription Recovery Agent — Implementation Plan
 
----
+## 1. Goal and completion standard
 
-## 0. What Changed From v1
+Build a locally runnable recovery agent that processes a failed Razorpay payment from ingestion through deterministic classification, bounded policy decision, advisory Qwen explanation, safe execution or escalation, append-only audit, and dashboard presentation.
 
-- **Reasoning layer runs on Qwen via Ollama**, not a rules-engine string template. Qwen receives structured event, classification, and policy context and returns an explanation only.
-- **Every build item is tagged** GOLDEN PATH (must work live, 100%, no exceptions) or BATCH-ONLY (fine if it only ever shows up in the report, never demoed live). If scope is constrained, cut BATCH-ONLY items wholesale — never half-build three things.
-- Pitch script, pre-empt questions, and backup-video plan are folded in as fixed checklist items, not optional polish.
+The repository is complete when all of the following are true:
 
----
-
-## 1. One-Line Pitch
-
-An agent that watches Razorpay test-mode payment failures, diagnoses *why* each one failed using a Qwen/Ollama reasoning pass, decides a bounded recovery action, executes it via the API, and shows a live, explainable audit trail of money recovered — with honest exception handling when it can't fix something.
-
-**Opening line for the pitch (memorize, don't read off a slide):**
-Quote Harshil Mathur from the FTX 2026 Agent Studio launch — paraphrase it as "businesses need systems that act, not just report" — then introduce the bounded Qwen/Ollama reasoning layer. Straight into the live demo after that.
-
----
+- A new contributor can install dependencies and start the backend, Ollama, and frontend using documented commands.
+- The insufficient-funds golden path completes end to end in Razorpay test mode or the safe mock executor.
+- Qwen-generated reasoning appears when Ollama responds; a useful policy-grounded fallback appears when it does not.
+- No frontend or model response can authorize, expand, or bypass a backend policy decision.
+- Every policy rule, stop condition, escalation, and execution failure has automated test coverage.
+- Synthetic and held-out evaluation results are reproducible and traceable to audit records.
 
 ## 2. System Architecture
 
@@ -85,7 +77,7 @@ The rules engine still makes every bounded decision (retry / escalate / stop). Q
 | Reasoning layer | **Qwen via Ollama** (`qwen3.5:latest`) | local structured explanation of the audit "why" string; no recovery authority |
 | Root-cause model | Rules-first, deterministic | explainable, testable, fast — this is the "gated" story, not model accuracy |
 | Payments | Razorpay test-mode APIs (Orders, Payments, Subscriptions, Refunds) | required by the brief |
-| Data store | SQLite or JSON append-only log | easy to demo-query |
+| Data store | SQLite append-only log | easy to demo-query and verify |
 | Frontend | React + TypeScript | polished live dashboard |
 | Scheduling/retry | simple loop or task queue | don't over-engineer |
 
@@ -240,6 +232,29 @@ Start with rules-based classification. Report rule-hit rate vs Qwen-assisted exp
 - Capture a successful golden-path demo and one graceful failure path.
 - Prepare the pitch around bounded deterministic decisions with advisory Qwen explanations.
 - **Complete when:** a new contributor can run, test, understand, and demo the complete repository.
+
+### Task dependency order
+
+Complete tasks in this order: `T01 → T02 → T03 → T04 → T05 → T06 → T07 → T08/T09 → T10 → T11 → T12`.
+
+`T08` and `T09` may proceed in parallel after `T07`, but `T10` depends on their response shapes. Do not begin BATCH-ONLY work until `T01`–`T10` are complete and the golden path is stable.
+
+### Verification commands
+
+Run the following checks before declaring the repository complete:
+
+```bash
+# Backend unit and integration tests
+cd backend
+python -m pytest -q
+
+# Frontend tests and production build
+cd ../frontend
+npm test -- --run
+npm run build
+```
+
+For the live verification, start Ollama with `qwen3.5:latest`, start the FastAPI backend on port `8000`, start Vite on port `5173`, submit an insufficient-funds event, and verify `Reasoning: Generated`, a recovered or safely bounded outcome, and a new audit record. Stop Ollama or use an invalid model only for the explicit fallback-path check.
 
 ---
 
