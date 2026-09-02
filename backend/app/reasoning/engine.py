@@ -110,6 +110,7 @@ def _build_fallback(
     policy_decision: PolicyDecision,
     model_id: str,
     error_msg: str,
+    classification: ClassificationResult | None = None,
 ) -> ReasoningResult:
     """Return a safe deterministic fallback that preserves the policy decision.
 
@@ -119,10 +120,20 @@ def _build_fallback(
     The fallback NEVER authorizes recovery — ``policy_action_allowed`` is
     copied verbatim from the policy engine's ``automatic_recovery_allowed``.
     """
+    classification_context = (
+        f"Payment classified as {classification.category.value}: {classification.reason}. "
+        if classification is not None
+        else "The failure classification was unavailable. "
+    )
+
     return ReasoningResult(
         success=False,
         recommendation=f"Follow policy decision: {policy_decision.action.value}",
-        explanation=f"Reasoning unavailable. Policy decision: {policy_decision.reason}",
+        explanation=(
+            f"{classification_context}"
+            f"The deterministic policy decision is {policy_decision.action.value}: "
+            f"{policy_decision.reason}."
+        ),
         confidence=0.0,
         model_id=model_id,
         policy_action_allowed=policy_decision.automatic_recovery_allowed,
@@ -135,6 +146,7 @@ def _parse_ollama_response(
     raw_body: dict[str, Any],
     policy_decision: PolicyDecision,
     model_id: str,
+    classification: ClassificationResult | None = None,
 ) -> ReasoningResult:
     """Parse the Ollama chat completion response into a ReasoningResult.
 
@@ -160,7 +172,10 @@ def _parse_ollama_response(
     except (json.JSONDecodeError, TypeError, AttributeError) as exc:
         logger.warning("Ollama returned unparseable content: %s", exc)
         return _build_fallback(
-            policy_decision, model_id, f"Malformed model output: {exc}"
+            policy_decision,
+            model_id,
+            f"Malformed model output: {exc}",
+            classification=classification,
         )
 
     # Validate required fields
@@ -170,11 +185,17 @@ def _parse_ollama_response(
 
     if not isinstance(recommendation, str) or not recommendation.strip():
         return _build_fallback(
-            policy_decision, model_id, "Model output missing 'recommendation' field"
+            policy_decision,
+            model_id,
+            "Model output missing 'recommendation' field",
+            classification=classification,
         )
     if not isinstance(explanation, str) or not explanation.strip():
         return _build_fallback(
-            policy_decision, model_id, "Model output missing 'explanation' field"
+            policy_decision,
+            model_id,
+            "Model output missing 'explanation' field",
+            classification=classification,
         )
 
     try:
@@ -186,6 +207,7 @@ def _parse_ollama_response(
             policy_decision,
             model_id,
             f"Model output has invalid 'confidence' value: {confidence!r}",
+            classification=classification,
         )
 
     # SAFETY: The reasoning layer MUST NOT upgrade a policy denial to allowed.
@@ -293,7 +315,11 @@ class RecoveryReasoner:
                 {"role": "user", "content": user_prompt},
             ],
             "stream": False,
+            # Reasoning is advisory only; disable extended chain-of-thought so
+            # the dashboard receives the bounded JSON explanation promptly.
+            "think": False,
             "format": "json",
+            "options": {"num_predict": 128},
         }
 
         try:
@@ -310,6 +336,7 @@ class RecoveryReasoner:
                 policy_decision,
                 self._model,
                 f"Ollama request timed out after {self._timeout}s",
+                classification=classification,
             )
         except httpx.HTTPStatusError as exc:
             logger.warning("Ollama returned HTTP %d", exc.response.status_code)
@@ -317,6 +344,7 @@ class RecoveryReasoner:
                 policy_decision,
                 self._model,
                 f"Ollama HTTP error: {exc.response.status_code}",
+                classification=classification,
             )
         except httpx.ConnectError:
             logger.warning("Could not connect to Ollama at %s", self._base_url)
@@ -324,6 +352,7 @@ class RecoveryReasoner:
                 policy_decision,
                 self._model,
                 f"Could not connect to Ollama at {self._base_url}",
+                classification=classification,
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("Unexpected error calling Ollama: %s", exc)
@@ -331,6 +360,9 @@ class RecoveryReasoner:
                 policy_decision,
                 self._model,
                 f"Unexpected error: {exc}",
+                classification=classification,
             )
 
-        return _parse_ollama_response(raw_body, policy_decision, self._model)
+        return _parse_ollama_response(
+            raw_body, policy_decision, self._model, classification=classification
+        )

@@ -241,6 +241,8 @@ class TestOllamaUnavailable:
         assert "connect" in result.error.lower() or "Connect" in result.error
         # Policy decision preserved
         assert result.policy_action_allowed is True
+        assert "insufficient_funds" in result.explanation
+        assert "retry after 24h cooldown" in result.explanation
 
     def test_generic_network_error(
         self, reasoner, payment_event, classification, policy_denied
