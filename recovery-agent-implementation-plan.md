@@ -1,23 +1,23 @@
 # Failed-Payment & Subscription Recovery Agent — Implementation Plan v2
-### Track 03: AI Revenue Recovery | Razorpay Hackathon | 4-Day Build
+### Track 03: AI Revenue Recovery | Razorpay Hackathon | Complete Build Plan
 ### Goal: 1st place, not a passing grade
 
 ---
 
 ## 0. What Changed From v1
 
-- **Reasoning layer now runs on the Claude Agent SDK**, not a rules-engine string template. This mirrors Razorpay's own Agent Studio (built with Anthropic), so the demo is architecturally legible to any Razorpay/Anthropic judge in the room.
-- **Every build item is tagged** 🟢 GOLDEN PATH (must work live, 100%, no exceptions) or 🟡 BATCH-ONLY (fine if it only ever shows up in the report, never demoed live). If you're behind on Day 3, you cut 🟡 items wholesale — never half-build three things.
+- **Reasoning layer runs on Qwen via Ollama**, not a rules-engine string template. Qwen receives structured event, classification, and policy context and returns an explanation only.
+- **Every build item is tagged** GOLDEN PATH (must work live, 100%, no exceptions) or BATCH-ONLY (fine if it only ever shows up in the report, never demoed live). If scope is constrained, cut BATCH-ONLY items wholesale — never half-build three things.
 - Pitch script, pre-empt questions, and backup-video plan are folded in as fixed checklist items, not optional polish.
 
 ---
 
 ## 1. One-Line Pitch
 
-An agent that watches Razorpay test-mode payment failures, diagnoses *why* each one failed using a Claude Agent SDK reasoning loop, decides a bounded recovery action, executes it via the API, and shows a live, explainable audit trail of money recovered — with honest exception handling when it can't fix something.
+An agent that watches Razorpay test-mode payment failures, diagnoses *why* each one failed using a Qwen/Ollama reasoning pass, decides a bounded recovery action, executes it via the API, and shows a live, explainable audit trail of money recovered — with honest exception handling when it can't fix something.
 
 **Opening line for the pitch (memorize, don't read off a slide):**
-Quote Harshil Mathur from the FTX 2026 Agent Studio launch — paraphrase it as "businesses need systems that act, not just report" — then: "That's exactly what we built, on the same Claude Agent SDK Razorpay's own Agent Studio runs on." Straight into the live demo after that.
+Quote Harshil Mathur from the FTX 2026 Agent Studio launch — paraphrase it as "businesses need systems that act, not just report" — then introduce the bounded Qwen/Ollama reasoning layer. Straight into the live demo after that.
 
 ---
 
@@ -33,8 +33,8 @@ Quote Harshil Mathur from the FTX 2026 Agent Studio launch — paraphrase it as 
                             ▼
                  ┌─────────────────────────────┐
                  │  Root-Cause Engine            │  rules-first
-                 │  (rules + Claude Agent SDK     │  classification,
-                 │   reasoning pass)              │  Claude explains
+                 │  (rules + Qwen/Ollama           │  classification,
+                 │   reasoning pass)              │  Qwen explains
                  └──────────┬───────────────────┘  the "why"
                             │
                             ▼
@@ -63,17 +63,17 @@ Quote Harshil Mathur from the FTX 2026 Agent Studio launch — paraphrase it as 
                  ┌─────────────────────────────┐
                  │  Dashboard (React)            │  live feed + batch
                  │  audit trail + NL query bar    │  report + metrics
-                 │  (Claude Agent SDK tool-use)    │
+                 │  (optional Qwen/Ollama query)   │
                  └─────────────────────────────┘
 ```
 
 **Core principle to keep visible everywhere in the build:** every action must trace back to *(cause → rule fired → bounded limit → outcome)*. That traceability is the actual deliverable, not model accuracy — and not "we called an LLM," but "we called an LLM inside an auditable, capped, deterministic decision system."
 
-**Where Claude Agent SDK actually sits (be precise about this in the pitch — judges will ask):**
-1. Root-cause reasoning string generation — Claude reads the structured event + rule match and produces the human-readable "reasoning" field in the audit log, grounded in the rule that actually fired (not free-floating).
-2. (Stretch, 🟡) NL query bar — a real tool-use loop over the audit log (Claude calls a `query_audit_log(filters)` tool), not a keyword filter dressed up as AI.
+**Where Qwen/Ollama actually sits (be precise about this in the pitch — judges will ask):**
+1. Root-cause reasoning string generation — Qwen reads the structured event + rule match and produces the human-readable reasoning field, grounded in the rule that actually fired.
+2. (Stretch, BATCH-ONLY) NL query bar — only if implemented as a real model-assisted query over the audit log, not a keyword filter dressed up as AI.
 
-The rules engine still makes every bounded decision (retry / escalate / stop). Claude explains and queries; it never decides the action unsupervised. Say this explicitly on stage — it's the difference between "cool AI demo" and "would you trust this with real money," and it's the honest answer to the "why not just retry everything automatically" question.
+The rules engine still makes every bounded decision (retry / escalate / stop). Qwen explains; it never decides the action unsupervised. Say this explicitly on stage — it's the honest answer to the "why not just retry everything automatically" question.
 
 ---
 
@@ -82,14 +82,14 @@ The rules engine still makes every bounded decision (retry / escalate / stop). C
 | Layer | Choice | Why |
 |---|---|---|
 | Backend / agent logic | Python (FastAPI) | fast to wire APIs + rules |
-| Reasoning layer | **Claude Agent SDK** (`claude-sonnet-4-6` via the API) | matches Razorpay's own Agent Studio stack; produces the audit "why" string and (stretch) the NL query tool-use loop |
+| Reasoning layer | **Qwen via Ollama** (`qwen3.5:latest`) | local structured explanation of the audit "why" string; no recovery authority |
 | Root-cause model | Rules-first, deterministic | explainable, testable, fast — this is the "gated" story, not model accuracy |
 | Payments | Razorpay test-mode APIs (Orders, Payments, Subscriptions, Refunds) | required by the brief |
 | Data store | SQLite or JSON append-only log | easy to demo-query |
 | Frontend | React + TypeScript | polished live dashboard |
 | Scheduling/retry | simple loop or task queue | don't over-engineer |
 
-Keep the model layer intentionally small everywhere except the Claude Agent SDK integration — that's the one place extra polish pays off disproportionately.
+Keep the model layer intentionally small. The Ollama request disables extended thinking and caps output at 128 tokens so the dashboard remains responsive; deterministic fallback text is shown if Ollama times out or returns invalid output.
 
 ---
 
@@ -125,9 +125,9 @@ Keep the model layer intentionally small everywhere except the Claude Agent SDK 
 | Auth/OTP failure | error_description mentions OTP/3DS | `AUTHENTICATION_ERROR` |
 | Unknown/ambiguous | doesn't cleanly match rules | — |
 
-Start with rules-based classification. Report rule-hit rate vs Claude-assisted explanation rate — don't claim the classifier itself is AI-driven if it isn't.
+Start with rules-based classification. Report rule-hit rate vs Qwen-assisted explanation rate — don't claim the classifier itself is AI-driven if it isn't.
 
-### 4.3 Decision Policy Table (build this Day 1 — it's the differentiator)
+### 4.3 Decision Policy Table (the differentiator)
 
 | Root Cause | Action | Bound / Limit | Escalation Trigger |
 |---|---|---|---|
@@ -156,57 +156,102 @@ Start with rules-based classification. Report rule-hit rate vs Claude-assisted e
   "attempt_number": 1,
   "outcome": "pending | recovered | failed | escalated",
   "amount_recovered": 149900,
-  "reasoning": "[Claude Agent SDK generated] Error matched insufficient-funds pattern; within retry limit (1/2); no amount cap triggered.",
+  "reasoning": "[Qwen-generated or policy-grounded fallback] Error matched insufficient-funds pattern; within retry limit (1/2); no amount cap triggered.",
   "timestamp": "2026-08-31T10:00:05Z"
 }
 ```
 
 ---
 
-## 5. Day-by-Day Plan (tagged 🟢 golden path / 🟡 batch-only)
+## 5. Task-Based Implementation Plan (tagged GOLDEN PATH / BATCH-ONLY)
 
-### Day 1 — Foundation
-- 🟢 Set up Razorpay test-mode account, generate API keys, manually confirm Orders/Payments/Subscriptions/Refunds request/response shapes.
-- 🟢 Write synthetic dataset generator: 50–100 failed transactions across the 5–6 categories, mixed subscription/one-time, some multi-attempt histories.
-- 🟢 Freeze a held-out ~20% slice — untouched until Day 4, this is what makes the metrics honest.
-- 🟢 Finalize failure taxonomy + decision policy table as an actual doc/config, not implicit in code.
-- 🟢 Get a minimal Claude Agent SDK call working end-to-end (one hardcoded event → one reasoning string out). Do this Day 1, not Day 3 — it's your differentiator and the riskiest external dependency.
+### T01 — Repository and configuration
+- Confirm the FastAPI, React/TypeScript, SQLite audit, Ollama, and Razorpay test-mode boundaries.
+- Keep credentials in environment variables only; never commit secrets.
+- Define configurable Ollama URL/model, reasoning timeout, amount cap, database path, and frontend API base URL.
+- **Complete when:** a clean checkout can install dependencies and start both services with documented commands.
 
-### Day 2 — Diagnosis + Decision Engine
-- 🟢 Build the rules-based root-cause classifier (deterministic, explainable).
-- 🟢 Wire the Claude Agent SDK reasoning call into the pipeline: rule fires → structured context passed to Claude → reasoning string returned → written to audit log.
-- 🟢 Implement the decision policy engine: category + attempt history + amount → action + bound check + escalation check.
-- 🟢 Unit-test the stopping rules directly — 5–10 explicit cases ("3rd insufficient-funds attempt must escalate, not retry"). Have these ready to show if asked "is this actually bounded or just described as bounded."
-- 🟡 Small ML classifier layer for ambiguous cases — only if Day 2 finishes early.
-- 🟢 Log every decision to the audit store, even before actions are wired to real APIs.
+### T02 — Event ingestion and validation
+- Normalize webhook, synthetic, and manually submitted failures into `FailedTransactionEvent`.
+- Validate IDs, amount, currency, payment method, failure fields, attempt number, and timestamp.
+- Reject malformed events before classification or execution.
+- **Complete when:** valid events reach the pipeline and invalid events return safe validation errors.
 
-### Day 3 — Execution + Dashboard
-- 🟢 Wire the Action Executor to real Razorpay test-mode calls for **one** flow end-to-end: insufficient-funds retry. This is the golden path — it must work live, every time.
-- 🟢 Handle one deliberate failure gracefully in that same flow (API timeout / malformed response): catch it, log as exception with a clear reason, don't crash the loop.
-- 🟡 Wire the remaining flows (mandate re-auth, gateway retry, card-switch, auth resend) — fine if these only ever run in batch, never live.
-- 🟢 Build the React/TS dashboard: live audit-trail feed (cause → rule → action → outcome), running recovered-₹ counter, filter by escalated/exception.
-- 🟡 NL query bar (Claude Agent SDK tool-use loop) — stretch, cut first if behind.
-- 🔴 **Record the backup demo video tonight, no matter what.** Full golden-path run, screen-recorded. If live works on Day 4, don't mention it exists. If live stutters, pivot to it instantly.
-- Checkpoint: review scope against time remaining. If behind, cut a whole 🟡 item — never half-build three.
+### T03 — Synthetic and held-out data
+- Generate representative failures for insufficient funds, mandate state, gateway timeout, card decline, authentication failure, and unknown failures.
+- Include one-time and subscription events plus multi-attempt histories.
+- Freeze a held-out slice and prevent evaluation code from training on or mutating it.
+- **Complete when:** synthetic and held-out datasets load through the same ingestion path.
 
-### Day 4 — Batch Run, Metrics, Polish, Demo
-- 🟢 Run the full batch (including the held-out slice) end-to-end.
-- 🟢 Compute and display: recovery rate overall and by category, ₹ recovered, false-escalation cost estimate, exception list with reasons.
-- 🟢 Write the README: problem, architecture diagram, decision policy table, metrics table, one audit-trail screenshot, the one gracefully-handled failure called out explicitly, and one line on the Claude Agent SDK integration.
-- 🟢 Rehearse the 3-minute pitch (Section 6) until it's cold, especially the pre-empt answers.
-- 🟢 Final checkpoint: if the golden path is solid and the backup video exists, stop touching code. Polish the pitch instead.
+### T04 — Deterministic failure classification
+- Implement rules-first classification with category, confidence, rule ID, source field, and reason.
+- Make unknown or ambiguous failures explicit; do not infer an auto-recovery category.
+- Add unit tests for every rule, precedence case, and unknown path.
+- **Complete when:** classification is deterministic, explainable, and independent of Qwen.
+
+### T05 — Bounded policy engine
+- Implement the decision table for retry, re-authorization, channel switch, notification, stop, and escalation.
+- Enforce retry limits, cooldowns, the global three-attempt cap, and the configurable amount cap.
+- Ensure unknown failures, missing decisions, exhausted limits, and high-value events cannot auto-recover.
+- Add explicit stopping-rule tests, including third insufficient-funds attempt escalation.
+- **Complete when:** only the policy engine can authorize recovery and all limits are unit-tested.
+
+### T06 — Qwen/Ollama advisory reasoning
+- Send structured event, classification, and policy context to Qwen using JSON output.
+- Set `think: false` and cap output with `num_predict: 128` so the dashboard remains responsive.
+- Parse and validate recommendation, explanation, and confidence.
+- On timeout, unavailable Ollama, or malformed output, show policy-grounded fallback reasoning without changing policy authority.
+- **Complete when:** successful calls show `reasoning_success=true`; failures show a useful fallback and never authorize an action.
+
+### T07 — End-to-end recovery pipeline
+- Orchestrate ingestion → classification → policy → reasoning → execution/escalation → audit.
+- Preserve each component result and never allow Qwen to mutate policy or execution.
+- Test success, denial, escalation, executor failure, reasoning failure, and audit failure paths.
+- **Complete when:** the golden path and all safety stop paths produce inspectable pipeline results.
+
+### T08 — Action execution and escalation
+- Wire the insufficient-funds scheduled retry to Razorpay test mode or the safe mock executor.
+- Catch downstream timeouts and malformed responses; return a failed result instead of crashing.
+- BATCH-ONLY: Add mandate re-authorization, gateway retry, card switching, and authentication resend only after the golden path is stable.
+- Escalate every denied, unknown, over-cap, exhausted, or failed case with a human-readable reason.
+- **Complete when:** every automated action is bounded and every stop/escalation is recorded.
+
+### T09 — Append-only audit log
+- Persist classification, policy, reasoning status/reference, execution, escalation, outcome, amount, attempt, and errors.
+- Keep the log append-only and redact credentials or sensitive values before persistence.
+- Expose read-only audit retrieval for the dashboard.
+- **Complete when:** each pipeline run has an auditable cause → rule → action → outcome trail.
+
+### T10 — React dashboard
+- Render the live outcome, classification, policy decision, reasoning recommendation/explanation, execution, escalation, and audit trail.
+- Clearly distinguish Qwen-generated reasoning from policy-grounded fallback reasoning.
+- Show recovered amount/counts and filters for escalated, failed, or exceptional outcomes.
+- Keep all authorization decisions in the backend; the frontend remains display-only.
+- **Complete when:** Safari/Chrome can submit the golden-path event and visibly show the full pipeline.
+
+### T11 — Evaluation and metrics
+- Run synthetic and held-out data end-to-end.
+- Report recovery rate overall and by category, recovered amount, false-escalation cost, and exception reasons.
+- Verify held-out results are reported separately and reproducibly.
+- **Complete when:** metrics are generated from commands and can be traced back to audit records.
+
+### T12 — Documentation and demo readiness
+- Document setup, environment variables, architecture, policy table, safety boundary, fallback behavior, and test commands.
+- Capture a successful golden-path demo and one graceful failure path.
+- Prepare the pitch around bounded deterministic decisions with advisory Qwen explanations.
+- **Complete when:** a new contributor can run, test, understand, and demo the complete repository.
 
 ---
 
 ## 6. Pitch Script — 3 Minutes, Rehearsed Cold
 
 - **0:00–0:15** — Quote (paraphrased) + one-line problem: revenue silently leaking through failed payments.
-- **0:15–1:45** — Live demo: a failure comes in → diagnosis fires (Claude-generated reasoning visible) → bounded action executes → escalation case shown explicitly stopping instead of looping.
+- **0:15–1:45** — Live demo: a failure comes in → diagnosis fires (Qwen-generated reasoning visible) → bounded action executes → escalation case shown explicitly stopping instead of looping.
 - **1:45–2:30** — Batch metrics screen: real numbers, real exception list, held-out slice called out as held-out.
-- **2:30–3:00** — Close: "built the reasoning layer on the same Claude Agent SDK Razorpay's own Agent Studio runs on" + one sentence on what you'd add with more time.
+- **2:30–3:00** — Close: explain that Qwen/Ollama provides advisory reasoning while deterministic policy controls recovery + one sentence on what you'd add with more time.
 
 **Pre-empt these questions cold — don't improvise them:**
-- *"Why not just retry everything automatically?"* → amount-cap + stopping-rule answer, plus: rules decide, Claude only explains and (stretch) queries — never decides unsupervised.
+- *"Why not just retry everything automatically?"* → amount-cap + stopping-rule answer, plus: rules decide, Qwen only explains — never decides unsupervised.
 - *"How does this generalize beyond synthetic data?"* → taxonomy is derived from real Razorpay error codes; decision policy is merchant-configurable; that's the extensibility story.
 - *"What's your false-escalation cost?"* → have the actual computed number from the batch run, not a guess.
 
@@ -214,27 +259,27 @@ Start with rules-based classification. Report rule-hit rate vs Claude-assisted e
 
 ## 7. What Judges Will Actually Be Checking
 
-- **Explainable:** every action has a visible "why" string, Claude-generated and rule-grounded — not just a category label.
+- **Explainable:** every action has a visible "why" string, Qwen-generated when available and policy-grounded on fallback — not just a category label.
 - **Bounded:** hard caps and cooldowns enforced and demonstrably unit-tested, not just described.
 - **Gated:** amount-threshold and unknown-cause cases always escalate rather than acting autonomously.
 - **Audit trail:** append-only, timestamped, queryable/filterable in the dashboard.
 - **One failure handled gracefully:** a real exception path shown live, not narrated.
 - **Honest metrics:** reported on the held-out batch, includes false-escalation cost, no cherry-picking.
-- **Built in the actual stack:** Claude Agent SDK for reasoning — the one feature most likely to be personally recognized by a Razorpay/Anthropic judge.
+- **Built in the actual stack:** Qwen via Ollama for reasoning, with a deterministic policy boundary.
 
 ---
 
-## 8. Stretch Ideas (only if Day 4 has slack — all 🟡)
+## 8. Stretch Ideas (only after all golden-path tasks are complete — all BATCH-ONLY)
 
 - Hinglish notification copy for mandate re-auth prompts.
 - A "promise-to-pay" flag when a customer manually confirms they'll pay later — tracked, not auto-retried.
-- Natural-language query bar on the dashboard, real Claude Agent SDK tool-use loop over the audit log.
+- Natural-language query bar on the dashboard, if a bounded Qwen/Ollama-assisted query loop is added.
 
 ---
 
 ## 9. Execution Discipline
 
-- Hard stop each night — a burnt-out builder ships worse code on Day 4.
-- Review scope against time remaining every 12 hours.
-- If behind by Day 3 morning, cut a whole 🟡 feature rather than under-build three.
+- Complete tasks in dependency order and keep the golden path runnable after each integration.
+- Validate every safety boundary with a test before adding the next layer.
+- If scope is constrained, cut a whole BATCH-ONLY feature rather than under-building several features.
 - The golden path (insufficient-funds retry, live, 100% reliable) is the only thing that must never break. Everything else can degrade to "batch-report only" without costing you the win.

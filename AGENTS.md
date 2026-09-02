@@ -4,7 +4,7 @@
 
 The primary specification is:
 
-recovery-agent-implementation-plan-v2.md
+recovery-agent-implementation-plan.md
 
 Read it before making architectural changes.
 
