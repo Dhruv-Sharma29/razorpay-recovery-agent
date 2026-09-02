@@ -1,8 +1,7 @@
 /**
- * PipelineStages component (TASK-013).
+ * PipelineStages component (TASK-009).
  *
- * Premium Fintech Redesign.
- * Displays each stage of the recovery pipeline as a beautiful connected journey.
+ * Displays each stage of the recovery pipeline as a visual card grid.
  * This component only renders backend data — no policy logic.
  */
 
@@ -12,81 +11,121 @@ interface PipelineStagesProps {
   result: DashboardResult;
 }
 
-function getIconStatus(stage: string, result: DashboardResult): "active" | "success" | "warning" | "danger" | "default" {
-  switch (stage) {
-    case "classification":
-      return result.failure_category && result.failure_category !== "unknown" ? "success" : "warning";
-    case "policy":
-      return result.automatic_recovery_allowed === true ? "success" : "warning";
-    case "reasoning":
-      return result.reasoning_success ? "success" : "warning";
-    case "execution":
-      return result.execution_status === "success" ? "success" :
-             result.execution_status === "failed" ? "danger" : "default";
-    case "escalation":
-      return result.escalation_status && result.escalation_status !== "not_required" ? "warning" : "default";
-    case "audit":
-      return "success";
-    default:
-      return "default";
-  }
+function formatAmount(paise: number | null): string {
+  if (paise === null || paise === undefined) return "—";
+  return `₹${(paise / 100).toLocaleString("en-IN", { minimumFractionDigits: 2 })}`;
 }
 
 export default function PipelineStages({ result }: PipelineStagesProps) {
   return (
-    <div className="pipeline-journey" data-testid="pipeline-stages">
-      {/* 01 Classification */}
-      <div className="pipeline-node">
-        <div className={`pipeline-icon ${getIconStatus("classification", result)}`}>01</div>
-        <div className="pipeline-content">
-          <h4>Classification</h4>
-          <p>{result.failure_category ?? "Not classified"}</p>
+    <div className="pipeline-stages" data-testid="pipeline-stages">
+      {/* 1. Classification */}
+      <div className="card stage">
+        <div className="stage-header">
+          <span className="stage-label">Classification</span>
+          <span className="stage-number">1</span>
+        </div>
+        <div className="stage-value">
+          {result.failure_category ?? "Not classified"}
+        </div>
+        <div className="stage-detail">
+          {result.classification_reason ?? "No classification data available"}
         </div>
       </div>
 
-      {/* 02 Policy */}
-      <div className="pipeline-node">
-        <div className={`pipeline-icon ${getIconStatus("policy", result)}`}>02</div>
-        <div className="pipeline-content">
-          <h4>Policy</h4>
-          <p>{result.policy_action ? result.policy_action.replace(/_/g, " ") : "No decision"}</p>
+      {/* 2. Policy Decision */}
+      <div className="card stage">
+        <div className="stage-header">
+          <span className="stage-label">Policy Decision</span>
+          <span className="stage-number">2</span>
+        </div>
+        <div className="stage-value">
+          {result.policy_action ?? "No decision"}
+        </div>
+        <div className="stage-detail">
+          {result.policy_reason ?? "No policy data available"}
+        </div>
+        {result.automatic_recovery_allowed !== null && (
+          <div className="stage-detail">
+            Recovery allowed:{" "}
+            <strong>{result.automatic_recovery_allowed ? "Yes" : "No"}</strong>
+          </div>
+        )}
+      </div>
+
+      {/* 3. Reasoning */}
+      <div className="card stage">
+        <div className="stage-header">
+          <span className="stage-label">Reasoning</span>
+          <span className="stage-number">3</span>
+        </div>
+        <div className="stage-value">
+          {result.reasoning_recommendation ?? "No recommendation"}
+        </div>
+        <div className="stage-detail">
+          {result.reasoning_explanation ?? "No reasoning data available"}
+        </div>
+        {result.reasoning_success !== null && (
+          <div className="stage-detail">
+            Reasoning succeeded:{" "}
+            <strong>{result.reasoning_success ? "Yes" : "No"}</strong>
+          </div>
+        )}
+      </div>
+
+      {/* 4. Execution */}
+      <div className="card stage">
+        <div className="stage-header">
+          <span className="stage-label">Execution</span>
+          <span className="stage-number">4</span>
+        </div>
+        <div className="stage-value">
+          {result.execution_status ?? "Not executed"}
+        </div>
+        <div className="stage-detail">
+          {result.execution_reason ?? "Execution was not attempted"}
         </div>
       </div>
 
-      {/* 03 Reasoning */}
-      <div className="pipeline-node">
-        <div className={`pipeline-icon ${getIconStatus("reasoning", result)}`}>03</div>
-        <div className="pipeline-content">
-          <h4>Reasoning</h4>
-          <p>{result.reasoning_success ? "Generated" : "Failed / Skipped"}</p>
+      {/* 5. Escalation */}
+      <div className="card stage">
+        <div className="stage-header">
+          <span className="stage-label">Escalation</span>
+          <span className="stage-number">5</span>
         </div>
+        <div className="stage-value">
+          {result.escalation_status ?? "Not evaluated"}
+        </div>
+        <div className="stage-detail">
+          {result.escalation_reason ?? "No escalation data available"}
+        </div>
+        {result.escalation_severity && (
+          <div className="stage-detail">
+            Severity: <strong>{result.escalation_severity}</strong>
+          </div>
+        )}
       </div>
 
-      {/* 04 Execution */}
-      <div className="pipeline-node">
-        <div className={`pipeline-icon ${getIconStatus("execution", result)}`}>04</div>
-        <div className="pipeline-content">
-          <h4>Execution</h4>
-          <p>{result.execution_status ? result.execution_status.replace(/_/g, " ") : "Not attempted"}</p>
+      {/* 6. Metadata */}
+      <div className="card stage">
+        <div className="stage-header">
+          <span className="stage-label">Transaction Info</span>
+          <span className="stage-number">6</span>
         </div>
-      </div>
-
-      {/* 05 Escalation */}
-      <div className="pipeline-node">
-        <div className={`pipeline-icon ${getIconStatus("escalation", result)}`}>05</div>
-        <div className="pipeline-content">
-          <h4>Escalation</h4>
-          <p>{result.escalation_status ? result.escalation_status.replace(/_/g, " ") : "Not evaluated"}</p>
+        <div className="stage-value">
+          {formatAmount(result.amount)}
         </div>
-      </div>
-
-      {/* 06 Audit */}
-      <div className="pipeline-node">
-        <div className={`pipeline-icon ${getIconStatus("audit", result)}`}>06</div>
-        <div className="pipeline-content">
-          <h4>Audit</h4>
-          <p>Recorded successfully</p>
+        <div className="stage-detail">
+          Attempt: {result.attempt_number ?? "—"}
         </div>
+        <div className="stage-detail">
+          Timestamp: {result.timestamp}
+        </div>
+        {result.error && (
+          <div className="stage-detail" style={{ color: "var(--status-failed)" }}>
+            Error: {result.error}
+          </div>
+        )}
       </div>
     </div>
   );
