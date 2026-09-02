@@ -7,7 +7,7 @@
 ## 0. What Changed From v1
 
 - **Reasoning layer runs on Qwen via Ollama**, not a rules-engine string template. Qwen receives structured event, classification, and policy context and returns an explanation only.
-- **Every build item is tagged** 🟢 GOLDEN PATH (must work live, 100%, no exceptions) or 🟡 BATCH-ONLY (fine if it only ever shows up in the report, never demoed live). If scope is constrained, cut 🟡 items wholesale — never half-build three things.
+- **Every build item is tagged** GOLDEN PATH (must work live, 100%, no exceptions) or BATCH-ONLY (fine if it only ever shows up in the report, never demoed live). If scope is constrained, cut BATCH-ONLY items wholesale — never half-build three things.
 - Pitch script, pre-empt questions, and backup-video plan are folded in as fixed checklist items, not optional polish.
 
 ---
@@ -71,7 +71,7 @@ Quote Harshil Mathur from the FTX 2026 Agent Studio launch — paraphrase it as 
 
 **Where Qwen/Ollama actually sits (be precise about this in the pitch — judges will ask):**
 1. Root-cause reasoning string generation — Qwen reads the structured event + rule match and produces the human-readable reasoning field, grounded in the rule that actually fired.
-2. (Stretch, 🟡) NL query bar — only if implemented as a real model-assisted query over the audit log, not a keyword filter dressed up as AI.
+2. (Stretch, BATCH-ONLY) NL query bar — only if implemented as a real model-assisted query over the audit log, not a keyword filter dressed up as AI.
 
 The rules engine still makes every bounded decision (retry / escalate / stop). Qwen explains; it never decides the action unsupervised. Say this explicitly on stage — it's the honest answer to the "why not just retry everything automatically" question.
 
@@ -163,82 +163,82 @@ Start with rules-based classification. Report rule-hit rate vs Qwen-assisted exp
 
 ---
 
-## 5. Task-Based Implementation Plan (tagged 🟢 golden path / 🟡 batch-only)
+## 5. Task-Based Implementation Plan (tagged GOLDEN PATH / BATCH-ONLY)
 
 ### T01 — Repository and configuration
-- 🟢 Confirm the FastAPI, React/TypeScript, SQLite audit, Ollama, and Razorpay test-mode boundaries.
-- 🟢 Keep credentials in environment variables only; never commit secrets.
-- 🟢 Define configurable Ollama URL/model, reasoning timeout, amount cap, database path, and frontend API base URL.
+- Confirm the FastAPI, React/TypeScript, SQLite audit, Ollama, and Razorpay test-mode boundaries.
+- Keep credentials in environment variables only; never commit secrets.
+- Define configurable Ollama URL/model, reasoning timeout, amount cap, database path, and frontend API base URL.
 - **Complete when:** a clean checkout can install dependencies and start both services with documented commands.
 
 ### T02 — Event ingestion and validation
-- 🟢 Normalize webhook, synthetic, and manually submitted failures into `FailedTransactionEvent`.
-- 🟢 Validate IDs, amount, currency, payment method, failure fields, attempt number, and timestamp.
-- 🟢 Reject malformed events before classification or execution.
+- Normalize webhook, synthetic, and manually submitted failures into `FailedTransactionEvent`.
+- Validate IDs, amount, currency, payment method, failure fields, attempt number, and timestamp.
+- Reject malformed events before classification or execution.
 - **Complete when:** valid events reach the pipeline and invalid events return safe validation errors.
 
 ### T03 — Synthetic and held-out data
-- 🟢 Generate representative failures for insufficient funds, mandate state, gateway timeout, card decline, authentication failure, and unknown failures.
-- 🟢 Include one-time and subscription events plus multi-attempt histories.
-- 🟢 Freeze a held-out slice and prevent evaluation code from training on or mutating it.
+- Generate representative failures for insufficient funds, mandate state, gateway timeout, card decline, authentication failure, and unknown failures.
+- Include one-time and subscription events plus multi-attempt histories.
+- Freeze a held-out slice and prevent evaluation code from training on or mutating it.
 - **Complete when:** synthetic and held-out datasets load through the same ingestion path.
 
 ### T04 — Deterministic failure classification
-- 🟢 Implement rules-first classification with category, confidence, rule ID, source field, and reason.
-- 🟢 Make unknown or ambiguous failures explicit; do not infer an auto-recovery category.
-- 🟢 Add unit tests for every rule, precedence case, and unknown path.
+- Implement rules-first classification with category, confidence, rule ID, source field, and reason.
+- Make unknown or ambiguous failures explicit; do not infer an auto-recovery category.
+- Add unit tests for every rule, precedence case, and unknown path.
 - **Complete when:** classification is deterministic, explainable, and independent of Qwen.
 
 ### T05 — Bounded policy engine
-- 🟢 Implement the decision table for retry, re-authorization, channel switch, notification, stop, and escalation.
-- 🟢 Enforce retry limits, cooldowns, the global three-attempt cap, and the configurable amount cap.
-- 🟢 Ensure unknown failures, missing decisions, exhausted limits, and high-value events cannot auto-recover.
-- 🟢 Add explicit stopping-rule tests, including third insufficient-funds attempt escalation.
+- Implement the decision table for retry, re-authorization, channel switch, notification, stop, and escalation.
+- Enforce retry limits, cooldowns, the global three-attempt cap, and the configurable amount cap.
+- Ensure unknown failures, missing decisions, exhausted limits, and high-value events cannot auto-recover.
+- Add explicit stopping-rule tests, including third insufficient-funds attempt escalation.
 - **Complete when:** only the policy engine can authorize recovery and all limits are unit-tested.
 
 ### T06 — Qwen/Ollama advisory reasoning
-- 🟢 Send structured event, classification, and policy context to Qwen using JSON output.
-- 🟢 Set `think: false` and cap output with `num_predict: 128` so the dashboard remains responsive.
-- 🟢 Parse and validate recommendation, explanation, and confidence.
-- 🟢 On timeout, unavailable Ollama, or malformed output, show policy-grounded fallback reasoning without changing policy authority.
+- Send structured event, classification, and policy context to Qwen using JSON output.
+- Set `think: false` and cap output with `num_predict: 128` so the dashboard remains responsive.
+- Parse and validate recommendation, explanation, and confidence.
+- On timeout, unavailable Ollama, or malformed output, show policy-grounded fallback reasoning without changing policy authority.
 - **Complete when:** successful calls show `reasoning_success=true`; failures show a useful fallback and never authorize an action.
 
 ### T07 — End-to-end recovery pipeline
-- 🟢 Orchestrate ingestion → classification → policy → reasoning → execution/escalation → audit.
-- 🟢 Preserve each component result and never allow Qwen to mutate policy or execution.
-- 🟢 Test success, denial, escalation, executor failure, reasoning failure, and audit failure paths.
+- Orchestrate ingestion → classification → policy → reasoning → execution/escalation → audit.
+- Preserve each component result and never allow Qwen to mutate policy or execution.
+- Test success, denial, escalation, executor failure, reasoning failure, and audit failure paths.
 - **Complete when:** the golden path and all safety stop paths produce inspectable pipeline results.
 
 ### T08 — Action execution and escalation
-- 🟢 Wire the insufficient-funds scheduled retry to Razorpay test mode or the safe mock executor.
-- 🟢 Catch downstream timeouts and malformed responses; return a failed result instead of crashing.
-- 🟡 Add mandate re-authorization, gateway retry, card switching, and authentication resend only after the golden path is stable.
-- 🟢 Escalate every denied, unknown, over-cap, exhausted, or failed case with a human-readable reason.
+- Wire the insufficient-funds scheduled retry to Razorpay test mode or the safe mock executor.
+- Catch downstream timeouts and malformed responses; return a failed result instead of crashing.
+- BATCH-ONLY: Add mandate re-authorization, gateway retry, card switching, and authentication resend only after the golden path is stable.
+- Escalate every denied, unknown, over-cap, exhausted, or failed case with a human-readable reason.
 - **Complete when:** every automated action is bounded and every stop/escalation is recorded.
 
 ### T09 — Append-only audit log
-- 🟢 Persist classification, policy, reasoning status/reference, execution, escalation, outcome, amount, attempt, and errors.
-- 🟢 Keep the log append-only and redact credentials or sensitive values before persistence.
-- 🟢 Expose read-only audit retrieval for the dashboard.
+- Persist classification, policy, reasoning status/reference, execution, escalation, outcome, amount, attempt, and errors.
+- Keep the log append-only and redact credentials or sensitive values before persistence.
+- Expose read-only audit retrieval for the dashboard.
 - **Complete when:** each pipeline run has an auditable cause → rule → action → outcome trail.
 
 ### T10 — React dashboard
-- 🟢 Render the live outcome, classification, policy decision, reasoning recommendation/explanation, execution, escalation, and audit trail.
-- 🟢 Clearly distinguish Qwen-generated reasoning from policy-grounded fallback reasoning.
-- 🟢 Show recovered amount/counts and filters for escalated, failed, or exceptional outcomes.
-- 🟢 Keep all authorization decisions in the backend; the frontend remains display-only.
+- Render the live outcome, classification, policy decision, reasoning recommendation/explanation, execution, escalation, and audit trail.
+- Clearly distinguish Qwen-generated reasoning from policy-grounded fallback reasoning.
+- Show recovered amount/counts and filters for escalated, failed, or exceptional outcomes.
+- Keep all authorization decisions in the backend; the frontend remains display-only.
 - **Complete when:** Safari/Chrome can submit the golden-path event and visibly show the full pipeline.
 
 ### T11 — Evaluation and metrics
-- 🟢 Run synthetic and held-out data end-to-end.
-- 🟢 Report recovery rate overall and by category, recovered amount, false-escalation cost, and exception reasons.
-- 🟢 Verify held-out results are reported separately and reproducibly.
+- Run synthetic and held-out data end-to-end.
+- Report recovery rate overall and by category, recovered amount, false-escalation cost, and exception reasons.
+- Verify held-out results are reported separately and reproducibly.
 - **Complete when:** metrics are generated from commands and can be traced back to audit records.
 
 ### T12 — Documentation and demo readiness
-- 🟢 Document setup, environment variables, architecture, policy table, safety boundary, fallback behavior, and test commands.
-- 🟢 Capture a successful golden-path demo and one graceful failure path.
-- 🟢 Prepare the pitch around bounded deterministic decisions with advisory Qwen explanations.
+- Document setup, environment variables, architecture, policy table, safety boundary, fallback behavior, and test commands.
+- Capture a successful golden-path demo and one graceful failure path.
+- Prepare the pitch around bounded deterministic decisions with advisory Qwen explanations.
 - **Complete when:** a new contributor can run, test, understand, and demo the complete repository.
 
 ---
@@ -269,7 +269,7 @@ Start with rules-based classification. Report rule-hit rate vs Qwen-assisted exp
 
 ---
 
-## 8. Stretch Ideas (only after all golden-path tasks are complete — all 🟡)
+## 8. Stretch Ideas (only after all golden-path tasks are complete — all BATCH-ONLY)
 
 - Hinglish notification copy for mandate re-auth prompts.
 - A "promise-to-pay" flag when a customer manually confirms they'll pay later — tracked, not auto-retried.
@@ -281,5 +281,5 @@ Start with rules-based classification. Report rule-hit rate vs Qwen-assisted exp
 
 - Complete tasks in dependency order and keep the golden path runnable after each integration.
 - Validate every safety boundary with a test before adding the next layer.
-- If scope is constrained, cut a whole 🟡 feature rather than under-building several features.
+- If scope is constrained, cut a whole BATCH-ONLY feature rather than under-building several features.
 - The golden path (insufficient-funds retry, live, 100% reliable) is the only thing that must never break. Everything else can degrade to "batch-report only" without costing you the win.
