@@ -1,13 +1,13 @@
-"""Tests for the Qwen 3.5 via Ollama reasoning layer (TASK-005).
+"""Tests for the Qwen 3.5 via NIM reasoning layer (TASK-005).
 
-All unit tests mock HTTP interactions — no running Ollama instance required.
+All unit tests mock HTTP interactions — no running NIM instance required.
 An optional integration test (marked ``@pytest.mark.integration``) connects
-to a real Ollama server and is skipped when one is not available.
+to a real NIM server and is skipped when one is not available.
 
 Test coverage:
-  1.  Successful Ollama response
+  1.  Successful NIM response
   2.  Valid structured reasoning response
-  3.  Ollama unavailable (connection refused)
+  3.  NIM unavailable (connection refused)
   4.  Timeout
   5.  Malformed response (unparseable JSON)
   6.  Invalid structured output (missing fields)
@@ -18,14 +18,14 @@ Test coverage:
   11. No mutation of the payment event
   12. Deterministic fallback behavior
   13. Configured model name is used
-  14. Configured Ollama URL is used
-  15. No real Ollama server is required for unit tests
+  14. Configured NIM URL is used
+  15. No real NIM server is required for unit tests
 
 Plus:
   - Invalid confidence values (out of range, non-numeric)
   - HTTP error statuses (500, 404)
   - Markdown-fenced JSON from model
-  - Optional integration test (skipped when Ollama is unavailable)
+  - Optional integration test (skipped when NIM is unavailable)
 """
 
 from __future__ import annotations
@@ -47,7 +47,7 @@ from app.models.payment_event import (
     TransactionType,
 )
 from app.policy.result import EscalationReason, PolicyAction, PolicyDecision
-from app.reasoning.engine import RecoveryReasoner, _build_fallback, _parse_ollama_response
+from app.reasoning.engine import RecoveryReasoner, _build_fallback, _parse_nim_response
 from app.reasoning.result import ReasoningResult
 
 
@@ -55,8 +55,8 @@ from app.reasoning.result import ReasoningResult
 # Fixtures
 # ---------------------------------------------------------------------------
 
-_TEST_OLLAMA_URL = "http://test-ollama:11434"
-_TEST_MODEL = "qwen3.5:test"
+_TEST_NIM_URL = "http://test-nim:11434"
+_TEST_MODEL = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
 
 
 @pytest.fixture()
@@ -133,13 +133,13 @@ def policy_denied() -> PolicyDecision:
 def reasoner() -> RecoveryReasoner:
     """RecoveryReasoner configured with test URL and model."""
     return RecoveryReasoner(
-        ollama_base_url=_TEST_OLLAMA_URL,
-        ollama_model=_TEST_MODEL,
+        nim_base_url=_TEST_NIM_URL,
+        nim_model=_TEST_MODEL,
         timeout=5.0,
     )
 
 
-def _mock_ollama_success(
+def _mock_nim_success(
     recommendation: str = "Retry the payment after a 24h cooldown period",
     explanation: str = (
         "The payment failed because the customer's account had insufficient "
@@ -148,7 +148,7 @@ def _mock_ollama_success(
     ),
     confidence: float = 0.92,
 ) -> dict[str, Any]:
-    """Build a mock Ollama /api/chat response body."""
+    """Build a mock NIM /chat/completions response body."""
     content = json.dumps(
         {
             "recommendation": recommendation,
@@ -157,12 +157,19 @@ def _mock_ollama_success(
         }
     )
     return {
+        "id": "chatcmpl-123",
+        "object": "chat.completion",
+        "created": 1677652288,
         "model": _TEST_MODEL,
-        "message": {
-            "role": "assistant",
-            "content": content,
-        },
-        "done": True,
+        "choices": [{
+            "index": 0,
+            "message": {
+                "role": "assistant",
+                "content": content,
+            },
+            "finish_reason": "stop"
+        }],
+        "usage": {"prompt_tokens": 9, "completion_tokens": 12, "total_tokens": 21}
     }
 
 
@@ -174,22 +181,22 @@ def _make_httpx_response(
     resp = httpx.Response(
         status_code=status_code,
         json=body,
-        request=httpx.Request("POST", f"{_TEST_OLLAMA_URL}/api/chat"),
+        request=httpx.Request("POST", f"{_TEST_NIM_URL}/chat/completions"),
     )
     return resp
 
 
 # ---------------------------------------------------------------------------
-# 1. Successful Ollama response
+# 1. Successful NIM response
 # ---------------------------------------------------------------------------
 
 
 class TestSuccessfulResponse:
-    def test_successful_ollama_call(
+    def test_successful_nim_call(
         self, reasoner, payment_event, classification, policy_allowed
     ):
-        """Ollama returns valid JSON → success=True, is_fallback=False."""
-        mock_body = _mock_ollama_success()
+        """NIM returns valid JSON → success=True, is_fallback=False."""
+        mock_body = _mock_nim_success()
         with patch.object(httpx, "post", return_value=_make_httpx_response(mock_body)):
             result = reasoner.analyze(payment_event, classification, policy_allowed)
 
@@ -206,7 +213,7 @@ class TestSuccessfulResponse:
         self, reasoner, payment_event, classification, policy_allowed
     ):
         """Result contains recommendation, explanation, confidence from model."""
-        mock_body = _mock_ollama_success(
+        mock_body = _mock_nim_success(
             recommendation="Schedule a retry",
             explanation="Funds were insufficient.",
             confidence=0.85,
@@ -220,11 +227,11 @@ class TestSuccessfulResponse:
 
 
 # ---------------------------------------------------------------------------
-# 3. Ollama unavailable
+# 3. NIM unavailable
 # ---------------------------------------------------------------------------
 
 
-class TestOllamaUnavailable:
+class TestNIMUnavailable:
     def test_connection_refused(
         self, reasoner, payment_event, classification, policy_allowed
     ):
@@ -292,11 +299,7 @@ class TestMalformedResponse:
         self, reasoner, payment_event, classification, policy_allowed
     ):
         """Model returns non-JSON text → fallback."""
-        body = {
-            "model": _TEST_MODEL,
-            "message": {"role": "assistant", "content": "I cannot help you"},
-            "done": True,
-        }
+        body = {"choices": [{"message": {"role": "assistant", "content": "I cannot help you"}}]}
         with patch.object(httpx, "post", return_value=_make_httpx_response(body)):
             result = reasoner.analyze(payment_event, classification, policy_allowed)
 
@@ -308,11 +311,7 @@ class TestMalformedResponse:
         self, reasoner, payment_event, classification, policy_allowed
     ):
         """Model returns empty content → fallback."""
-        body = {
-            "model": _TEST_MODEL,
-            "message": {"role": "assistant", "content": ""},
-            "done": True,
-        }
+        body = {"choices": [{"message": {"role": "assistant", "content": ""}}]}
         with patch.object(httpx, "post", return_value=_make_httpx_response(body)):
             result = reasoner.analyze(payment_event, classification, policy_allowed)
 
@@ -330,14 +329,7 @@ class TestMalformedResponse:
                 "confidence": 0.9,
             }
         )
-        body = {
-            "model": _TEST_MODEL,
-            "message": {
-                "role": "assistant",
-                "content": f"```json\n{inner}\n```",
-            },
-            "done": True,
-        }
+        body = {"choices": [{"message": {"role": "assistant", "content": f"```json\n{inner}\n```"}}]}
         with patch.object(httpx, "post", return_value=_make_httpx_response(body)):
             result = reasoner.analyze(payment_event, classification, policy_allowed)
 
@@ -355,16 +347,7 @@ class TestInvalidStructuredOutput:
         self, reasoner, payment_event, classification, policy_allowed
     ):
         """JSON present but 'recommendation' missing → fallback."""
-        body = {
-            "model": _TEST_MODEL,
-            "message": {
-                "role": "assistant",
-                "content": json.dumps(
-                    {"explanation": "Some text", "confidence": 0.8}
-                ),
-            },
-            "done": True,
-        }
+        body = {"choices": [{"message": {"role": "assistant", "content": json.dumps({"explanation": "Some text", "confidence": 0.8})}}]}
         with patch.object(httpx, "post", return_value=_make_httpx_response(body)):
             result = reasoner.analyze(payment_event, classification, policy_allowed)
 
@@ -376,16 +359,7 @@ class TestInvalidStructuredOutput:
         self, reasoner, payment_event, classification, policy_allowed
     ):
         """JSON present but 'explanation' missing → fallback."""
-        body = {
-            "model": _TEST_MODEL,
-            "message": {
-                "role": "assistant",
-                "content": json.dumps(
-                    {"recommendation": "Retry", "confidence": 0.8}
-                ),
-            },
-            "done": True,
-        }
+        body = {"choices": [{"message": {"role": "assistant", "content": json.dumps({"recommendation": "Retry", "confidence": 0.8})}}]}
         with patch.object(httpx, "post", return_value=_make_httpx_response(body)):
             result = reasoner.analyze(payment_event, classification, policy_allowed)
 
@@ -397,20 +371,7 @@ class TestInvalidStructuredOutput:
         self, reasoner, payment_event, classification, policy_allowed
     ):
         """Confidence > 1.0 → fallback."""
-        body = {
-            "model": _TEST_MODEL,
-            "message": {
-                "role": "assistant",
-                "content": json.dumps(
-                    {
-                        "recommendation": "Retry",
-                        "explanation": "Reason",
-                        "confidence": 1.5,
-                    }
-                ),
-            },
-            "done": True,
-        }
+        body = {"choices": [{"message": {"role": "assistant", "content": json.dumps({"recommendation": "Retry", "explanation": "Reason", "confidence": 1.5})}}]}
         with patch.object(httpx, "post", return_value=_make_httpx_response(body)):
             result = reasoner.analyze(payment_event, classification, policy_allowed)
 
@@ -422,20 +383,7 @@ class TestInvalidStructuredOutput:
         self, reasoner, payment_event, classification, policy_allowed
     ):
         """Confidence is a string → fallback."""
-        body = {
-            "model": _TEST_MODEL,
-            "message": {
-                "role": "assistant",
-                "content": json.dumps(
-                    {
-                        "recommendation": "Retry",
-                        "explanation": "Reason",
-                        "confidence": "high",
-                    }
-                ),
-            },
-            "done": True,
-        }
+        body = {"choices": [{"message": {"role": "assistant", "content": json.dumps({"recommendation": "Retry", "explanation": "Reason", "confidence": "high"})}}]}
         with patch.object(httpx, "post", return_value=_make_httpx_response(body)):
             result = reasoner.analyze(payment_event, classification, policy_allowed)
 
@@ -457,7 +405,7 @@ class TestReasoningCannotOverridePolicy:
         policy_denied,
     ):
         """Even if Qwen says 'retry', policy_action_allowed stays False."""
-        mock_body = _mock_ollama_success(
+        mock_body = _mock_nim_success(
             recommendation="Retry immediately — the customer likely has funds now",
             explanation="The customer should have funds now.",
             confidence=0.95,
@@ -486,7 +434,7 @@ class TestReasoningCannotChangeDecision:
     ):
         """The policy decision object is unchanged after reasoning."""
         original = policy_denied.model_copy()
-        mock_body = _mock_ollama_success()
+        mock_body = _mock_nim_success()
         with patch.object(httpx, "post", return_value=_make_httpx_response(mock_body)):
             reasoner.analyze(payment_event, classification, policy_denied)
 
@@ -501,7 +449,7 @@ class TestReasoningCannotChangeDecision:
     ):
         """Policy-allowed decision is unchanged after reasoning."""
         original = policy_allowed.model_copy()
-        mock_body = _mock_ollama_success()
+        mock_body = _mock_nim_success()
         with patch.object(httpx, "post", return_value=_make_httpx_response(mock_body)):
             reasoner.analyze(payment_event, classification, policy_allowed)
 
@@ -518,7 +466,7 @@ class TestPolicyApprovedCorrect:
         self, reasoner, payment_event, classification, policy_allowed
     ):
         """When policy allows, result.policy_action_allowed is True."""
-        mock_body = _mock_ollama_success()
+        mock_body = _mock_nim_success()
         with patch.object(httpx, "post", return_value=_make_httpx_response(mock_body)):
             result = reasoner.analyze(payment_event, classification, policy_allowed)
 
@@ -548,7 +496,7 @@ class TestPolicyDeniedStaysDenied:
         self, reasoner, payment_event, classification, policy_denied
     ):
         """Successful Qwen call + policy denied → still denied."""
-        mock_body = _mock_ollama_success(
+        mock_body = _mock_nim_success(
             recommendation="I strongly recommend retrying this payment",
         )
         with patch.object(httpx, "post", return_value=_make_httpx_response(mock_body)):
@@ -580,7 +528,7 @@ class TestNoMutationOfPaymentEvent:
     ):
         """Payment event is not mutated during successful reasoning."""
         original = payment_event.model_copy(deep=True)
-        mock_body = _mock_ollama_success()
+        mock_body = _mock_nim_success()
         with patch.object(httpx, "post", return_value=_make_httpx_response(mock_body)):
             reasoner.analyze(payment_event, classification, policy_allowed)
 
@@ -644,10 +592,10 @@ class TestConfiguredModel:
         """Result.model_id matches the configured model."""
         custom_model = "qwen3.5:custom-fine-tuned"
         reasoner = RecoveryReasoner(
-            ollama_base_url=_TEST_OLLAMA_URL,
-            ollama_model=custom_model,
+            nim_base_url=_TEST_NIM_URL,
+            nim_model=custom_model,
         )
-        mock_body = _mock_ollama_success()
+        mock_body = _mock_nim_success()
         with patch.object(httpx, "post", return_value=_make_httpx_response(mock_body)):
             result = reasoner.analyze(payment_event, classification, policy_allowed)
 
@@ -659,10 +607,10 @@ class TestConfiguredModel:
         """The HTTP payload uses the configured model name."""
         custom_model = "qwen3.5:special"
         reasoner = RecoveryReasoner(
-            ollama_base_url=_TEST_OLLAMA_URL,
-            ollama_model=custom_model,
+            nim_base_url=_TEST_NIM_URL,
+            nim_model=custom_model,
         )
-        mock_body = _mock_ollama_success()
+        mock_body = _mock_nim_success()
         with patch.object(
             httpx, "post", return_value=_make_httpx_response(mock_body)
         ) as mock_post:
@@ -673,14 +621,14 @@ class TestConfiguredModel:
         assert payload["model"] == custom_model
 
     def test_default_model_from_settings(self):
-        """When no model is passed, settings.ollama_model is used."""
-        reasoner = RecoveryReasoner(ollama_base_url=_TEST_OLLAMA_URL)
-        # The default is 'qwen3.5:latest' from config.py
-        assert reasoner.model == "qwen3.5:latest"
+        """When no model is passed, settings.nim_model is used."""
+        reasoner = RecoveryReasoner(nim_base_url=_TEST_NIM_URL)
+        # The default is 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning' from config.py
+        assert reasoner.model == "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
 
 
 # ---------------------------------------------------------------------------
-# 14. Configured Ollama URL is used
+# 14. Configured NIM URL is used
 # ---------------------------------------------------------------------------
 
 
@@ -688,13 +636,13 @@ class TestConfiguredUrl:
     def test_url_in_request(
         self, payment_event, classification, policy_allowed
     ):
-        """HTTP request is sent to the configured Ollama URL."""
-        custom_url = "http://my-ollama:9999"
+        """HTTP request is sent to the configured NIM URL."""
+        custom_url = "http://my-nim:9999"
         reasoner = RecoveryReasoner(
-            ollama_base_url=custom_url,
-            ollama_model=_TEST_MODEL,
+            nim_base_url=custom_url,
+            nim_model=_TEST_MODEL,
         )
-        mock_body = _mock_ollama_success()
+        mock_body = _mock_nim_success()
         with patch.object(
             httpx, "post", return_value=_make_httpx_response(mock_body)
         ) as mock_post:
@@ -702,16 +650,16 @@ class TestConfiguredUrl:
 
         call_args = mock_post.call_args
         url = call_args.args[0] if call_args.args else call_args.kwargs.get("url", "")
-        assert url == f"{custom_url}/api/chat"
+        assert url == f"{custom_url}/chat/completions"
 
     def test_default_url_from_settings(self):
-        """When no URL is passed, settings.ollama_base_url is used."""
-        reasoner = RecoveryReasoner(ollama_model=_TEST_MODEL)
-        assert reasoner.base_url == "http://localhost:11434"
+        """When no URL is passed, settings.nim_base_url is used."""
+        reasoner = RecoveryReasoner(nim_model=_TEST_MODEL)
+        assert reasoner.base_url == "https://integrate.api.nvidia.com/v1"
 
 
 # ---------------------------------------------------------------------------
-# 15. No real Ollama server required for unit tests (meta-test)
+# 15. No real NIM server required for unit tests (meta-test)
 # ---------------------------------------------------------------------------
 
 
@@ -720,7 +668,7 @@ class TestNoRealServer:
         self, reasoner, payment_event, classification, policy_allowed
     ):
         """This test verifies the pattern: mocked HTTP → no real server."""
-        mock_body = _mock_ollama_success()
+        mock_body = _mock_nim_success()
         with patch.object(httpx, "post", return_value=_make_httpx_response(mock_body)):
             result = reasoner.analyze(payment_event, classification, policy_allowed)
         assert isinstance(result, ReasoningResult)
@@ -757,41 +705,41 @@ class TestHttpErrors:
 
 
 # ---------------------------------------------------------------------------
-# Extra: _parse_ollama_response edge cases
+# Extra: _parse_nim_response edge cases
 # ---------------------------------------------------------------------------
 
 
 class TestParseEdgeCases:
     def test_missing_message_key(self, policy_allowed):
         """Response body without 'message' key → fallback."""
-        raw = {"model": _TEST_MODEL, "done": True}
-        result = _parse_ollama_response(raw, policy_allowed, _TEST_MODEL)
+        raw = {"choices": [{}]}
+        result = _parse_nim_response(raw, policy_allowed, _TEST_MODEL)
         assert result.success is False
         assert result.is_fallback is True
 
     def test_empty_recommendation_string(self, policy_allowed):
         """Empty recommendation string → fallback."""
         raw = {
-            "message": {
+            "choices": [{"message": {
                 "content": json.dumps(
                     {"recommendation": "   ", "explanation": "X", "confidence": 0.5}
                 )
-            }
+            }}]
         }
-        result = _parse_ollama_response(raw, policy_allowed, _TEST_MODEL)
+        result = _parse_nim_response(raw, policy_allowed, _TEST_MODEL)
         assert result.success is False
         assert result.is_fallback is True
 
     def test_negative_confidence(self, policy_allowed):
         """Negative confidence → fallback."""
         raw = {
-            "message": {
+            "choices": [{"message": {
                 "content": json.dumps(
                     {"recommendation": "Retry", "explanation": "X", "confidence": -0.1}
                 )
-            }
+            }}]
         }
-        result = _parse_ollama_response(raw, policy_allowed, _TEST_MODEL)
+        result = _parse_nim_response(raw, policy_allowed, _TEST_MODEL)
         assert result.success is False
         assert result.is_fallback is True
 
@@ -803,31 +751,31 @@ class TestParseEdgeCases:
 
 @pytest.mark.integration
 class TestIntegration:
-    """Integration tests that require a running Ollama server.
+    """Integration tests that require a running NIM server.
 
     Run with: pytest -m integration
     Skip with: pytest -m "not integration" (default)
     """
 
     @pytest.fixture(autouse=True)
-    def _check_ollama(self):
-        """Skip if Ollama is not reachable."""
+    def _check_nim(self):
+        """Skip if NIM is not reachable."""
         try:
             resp = httpx.get("http://localhost:11434/api/tags", timeout=3.0)
             if resp.status_code != 200:
-                pytest.skip("Ollama server returned non-200")
+                pytest.skip("NIM server returned non-200")
         except Exception:
-            pytest.skip("Ollama server not available at localhost:11434")
+            pytest.skip("NIM server not available at localhost:11434")
 
-    def test_real_ollama_call(self, payment_event, classification, policy_allowed):
-        """End-to-end call to a real Ollama instance."""
+    def test_real_nim_call(self, payment_event, classification, policy_allowed):
+        """End-to-end call to a real NIM instance."""
         reasoner = RecoveryReasoner(timeout=60.0)
         result = reasoner.analyze(payment_event, classification, policy_allowed)
 
         # We don't assert on content (model output varies), but structure
         # must be valid.
         assert isinstance(result, ReasoningResult)
-        assert result.model_id == "qwen3.5:latest"
+        assert result.model_id == "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
         if result.success:
             assert result.is_fallback is False
             assert 0.0 <= result.confidence <= 1.0
@@ -837,10 +785,10 @@ class TestIntegration:
             # Model might not be available, but we should get a clean fallback
             assert result.is_fallback is True
 
-    def test_real_ollama_denied_policy(
+    def test_real_nim_denied_policy(
         self, payment_event, classification, policy_denied
     ):
-        """Real Ollama call with denied policy → policy_action_allowed=False."""
+        """Real NIM call with denied policy → policy_action_allowed=False."""
         reasoner = RecoveryReasoner(timeout=60.0)
         result = reasoner.analyze(payment_event, classification, policy_denied)
 

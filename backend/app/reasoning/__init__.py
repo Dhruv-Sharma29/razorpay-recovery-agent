@@ -1,4 +1,4 @@
-"""Qwen 3.5 reasoning layer via Ollama.
+"""Advisory reasoning layer via NVIDIA NIM.
 
 Provides structured explanations of recovery decisions that have already
 been made by the deterministic policy engine.  The reasoning layer
