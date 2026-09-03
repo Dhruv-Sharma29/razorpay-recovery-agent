@@ -46,7 +46,14 @@ export default function AuditLog({
 
         {!error && records.length === 0 && !loading && (
           <div className="empty-state" data-testid="audit-empty">
-            <div className="empty-state__icon">📋</div>
+            <div className="empty-state__icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+                <rect x="4.5" y="3.5" width="15" height="17" rx="2.5" />
+                <line x1="8" y1="8.5" x2="16" y2="8.5" strokeLinecap="round" />
+                <line x1="8" y1="12" x2="16" y2="12" strokeLinecap="round" />
+                <line x1="8" y1="15.5" x2="12.5" y2="15.5" strokeLinecap="round" />
+              </svg>
+            </div>
             <div className="empty-state__title">No audit records yet</div>
             <div className="empty-state__description">
               Process a payment to see entries appear here.
@@ -77,7 +84,7 @@ export default function AuditLog({
                     <td>
                       <StatusBadge outcome={record.final_outcome} />
                     </td>
-                    <td>{record.timestamp}</td>
+                    <td className="data-mono">{record.timestamp}</td>
                   </tr>
                 ))}
               </tbody>

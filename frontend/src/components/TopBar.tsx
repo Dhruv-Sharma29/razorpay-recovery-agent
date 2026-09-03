@@ -1,12 +1,33 @@
 /**
  * TopBar component.
  *
- * Purely presentational brand header for the PayPulse console.
- * Displays a "TEST MODE" badge so it is always clear that no
- * live money is being moved — no policy or pipeline logic here.
+ * Purely presentational brand header for the Reflow console, plus the
+ * light/dark theme toggle — no policy or pipeline logic here.
  */
 
+import { useEffect, useState } from "react";
+
+type Theme = "light" | "dark";
+
+function useTheme() {
+  const [theme, setTheme] = useState<Theme>(
+    () => (localStorage.getItem("theme") as Theme) ?? "light",
+  );
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem("theme", theme);
+  }, [theme]);
+
+  return {
+    theme,
+    toggle: () => setTheme((t) => (t === "light" ? "dark" : "light")),
+  };
+}
+
 export default function TopBar() {
+  const { theme, toggle } = useTheme();
+
   return (
     <div className="topbar">
       <div className="topbar__brand">
@@ -22,12 +43,17 @@ export default function TopBar() {
             <rect x="2" y="9" width="20" height="3" fill="#0a1a3f" />
           </svg>
         </span>
-        <span className="topbar__name">PayPulse</span>
+        <span className="topbar__name">Reflow</span>
         <span className="topbar__tagline">Failed-Payment Recovery Console</span>
       </div>
-      <span className="badge badge--test" data-testid="test-mode-badge">
-        Test Mode
-      </span>
+      <button
+        className="theme-toggle"
+        onClick={toggle}
+        aria-label="Toggle theme"
+        data-testid="theme-toggle"
+      >
+        {theme === "light" ? "Dark mode" : "Light mode"}
+      </button>
     </div>
   );
 }

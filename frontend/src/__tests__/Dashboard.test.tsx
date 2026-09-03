@@ -86,7 +86,7 @@ describe("Dashboard Component", () => {
     await waitFor(() => {
       expect(screen.getByTestId("result-display")).toBeInTheDocument();
       const statusBadge = screen.getByTestId("status-badge");
-      expect(statusBadge).toHaveTextContent("✅ Recovered");
+      expect(statusBadge).toHaveTextContent("Recovered");
       expect(screen.getByText("scheduled_retry")).toBeInTheDocument();
     });
   });
@@ -123,7 +123,7 @@ describe("Dashboard Component", () => {
       const statusBadge = screen.getByTestId("status-badge");
       // Could be denied or escalated depending on backend logic
       // In this case we mocked final_outcome as escalated
-      expect(statusBadge).toHaveTextContent("🚨 Escalated");
+      expect(statusBadge).toHaveTextContent("Escalated");
       expect(screen.getByText("Retry limit exhausted")).toBeInTheDocument();
     });
   });
@@ -159,7 +159,7 @@ describe("Dashboard Component", () => {
     await waitFor(() => {
       const statusBadge = screen.getByTestId("status-badge");
       expect(statusBadge).not.toHaveTextContent("Recovered");
-      expect(statusBadge).toHaveTextContent("🚨 Escalated");
+      expect(statusBadge).toHaveTextContent("Escalated");
       expect(screen.getByText("Unknown failure")).toBeInTheDocument();
     });
   });

@@ -144,16 +144,20 @@ class TestSecurityHardening:
             amount_limit=500000
         )
         
-        # Mock an Ollama response that attempts to authorize recovery
+        # Mock a NIM response that attempts to authorize recovery
         raw_body = {
-            "message": {
-                "content": '{"recommendation": "do it anyway", "explanation": "looks fine", "confidence": 0.99}'
-            }
+            "choices": [
+                {
+                    "message": {
+                        "content": '{"recommendation": "do it anyway", "explanation": "looks fine", "confidence": 0.99}'
+                    }
+                }
+            ]
         }
         
         # Use the internal parser to test the boundary
-        from app.reasoning.engine import _parse_ollama_response
-        result = _parse_ollama_response(raw_body, policy_decision, "test-model")
+        from app.reasoning.engine import _parse_nim_response
+        result = _parse_nim_response(raw_body, policy_decision, "test-model")
         
         assert result.policy_action_allowed is False  # Must remain False
 

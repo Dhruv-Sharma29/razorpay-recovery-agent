@@ -9,12 +9,12 @@
 import type { FinalOutcome } from "../types/dashboard";
 
 const LABELS: Record<FinalOutcome, string> = {
-  recovered: "✅ Recovered",
-  denied: "⛔ Denied",
-  escalated: "🚨 Escalated",
-  execution_failed: "❌ Failed",
-  recorded: "📋 Recorded",
-  audit_failed: "⚠️ Audit Failed",
+  recovered: "Recovered",
+  denied: "Denied",
+  escalated: "Escalated",
+  execution_failed: "Failed",
+  recorded: "Recorded",
+  audit_failed: "Audit Failed",
 };
 
 interface StatusBadgeProps {
@@ -22,7 +22,7 @@ interface StatusBadgeProps {
 }
 
 export default function StatusBadge({ outcome }: StatusBadgeProps) {
-  const label = LABELS[outcome] ?? "⚠️ Unknown";
+  const label = LABELS[outcome] ?? "Unknown";
   const className = `status-badge status-badge--${outcome}`;
 
   return (

@@ -6,9 +6,9 @@ Build a locally runnable recovery agent that processes a failed Razorpay payment
 
 The repository is complete when all of the following are true:
 
-- A new contributor can install dependencies and start the backend, Ollama, and frontend using documented commands.
+- A new contributor can install dependencies and start the backend and frontend using documented commands.
 - The insufficient-funds golden path completes end to end in Razorpay test mode or the safe mock executor.
-- Qwen-generated reasoning appears when Ollama responds; a useful policy-grounded fallback appears when it does not.
+- Model-generated reasoning appears when NIM responds; a useful policy-grounded fallback appears when it does not.
 - No frontend or model response can authorize, expand, or bypass a backend policy decision.
 - Every policy rule, stop condition, escalation, and execution failure has automated test coverage.
 - Synthetic and held-out evaluation results are reproducible and traceable to audit records.
@@ -25,8 +25,8 @@ The repository is complete when all of the following are true:
                             ▼
                  ┌─────────────────────────────┐
                  │  Root-Cause Engine            │  rules-first
-                 │  (rules + Qwen/Ollama           │  classification,
-                 │   reasoning pass)              │  Qwen explains
+                 │  (rules + NIM                   │  classification,
+                 │   reasoning pass)              │  model explains
                  └──────────┬───────────────────┘  the "why"
                             │
                             ▼
@@ -55,13 +55,13 @@ The repository is complete when all of the following are true:
                  ┌─────────────────────────────┐
                  │  Dashboard (React)            │  live feed + batch
                  │  audit trail + NL query bar    │  report + metrics
-                 │  (optional Qwen/Ollama query)   │
+                 │  (optional NIM-assisted query)  │
                  └─────────────────────────────┘
 ```
 
 **Core principle to keep visible everywhere in the build:** every action must trace back to *(cause → rule fired → bounded limit → outcome)*. That traceability is the actual deliverable, not model accuracy — and not "we called an LLM," but "we called an LLM inside an auditable, capped, deterministic decision system."
 
-**Where Qwen/Ollama actually sits (be precise about this in the pitch — judges will ask):**
+**Where the AI Model actually sits (be precise about this in the pitch — judges will ask):**
 1. Root-cause reasoning string generation — Qwen reads the structured event + rule match and produces the human-readable reasoning field, grounded in the rule that actually fired.
 2. (Stretch, BATCH-ONLY) NL query bar — only if implemented as a real model-assisted query over the audit log, not a keyword filter dressed up as AI.
 
@@ -74,14 +74,14 @@ The rules engine still makes every bounded decision (retry / escalate / stop). Q
 | Layer | Choice | Why |
 |---|---|---|
 | Backend / agent logic | Python (FastAPI) | fast to wire APIs + rules |
-| Reasoning layer | **Qwen via Ollama** (`qwen3.5:latest`) | local structured explanation of the audit "why" string; no recovery authority |
+| Reasoning layer | **NVIDIA NIM API** (`nvidia/nemotron-3-nano-omni-30b-a3b-reasoning`) | fast cloud-based structured explanation of the audit "why" string; no recovery authority |
 | Root-cause model | Rules-first, deterministic | explainable, testable, fast — this is the "gated" story, not model accuracy |
 | Payments | Razorpay test-mode APIs (Orders, Payments, Subscriptions, Refunds) | required by the brief |
 | Data store | SQLite append-only log | easy to demo-query and verify |
 | Frontend | React + TypeScript | polished live dashboard |
 | Scheduling/retry | simple loop or task queue | don't over-engineer |
 
-Keep the model layer intentionally small. The Ollama request disables extended thinking and caps output at 128 tokens so the dashboard remains responsive; deterministic fallback text is shown if Ollama times out or returns invalid output.
+Keep the model layer intentionally small. The API request is optimized so the dashboard remains responsive; deterministic fallback text is shown if NIM times out or returns invalid output.
 
 ---
 
@@ -158,9 +158,8 @@ Start with rules-based classification. Report rule-hit rate vs Qwen-assisted exp
 ## 5. Task-Based Implementation Plan (tagged GOLDEN PATH / BATCH-ONLY)
 
 ### T01 — Repository and configuration
-- Confirm the FastAPI, React/TypeScript, SQLite audit, Ollama, and Razorpay test-mode boundaries.
-- Keep credentials in environment variables only; never commit secrets.
-- Define configurable Ollama URL/model, reasoning timeout, amount cap, database path, and frontend API base URL.
+- Confirm the FastAPI, React/TypeScript, SQLite audit, NIM API, and Razorpay test-mode boundaries.
+- Define configurable NIM API Key/URL/model, reasoning timeout, amount cap, database path, and frontend API base URL.
 - **Complete when:** a clean checkout can install dependencies and start both services with documented commands.
 
 ### T02 — Event ingestion and validation
@@ -188,11 +187,11 @@ Start with rules-based classification. Report rule-hit rate vs Qwen-assisted exp
 - Add explicit stopping-rule tests, including third insufficient-funds attempt escalation.
 - **Complete when:** only the policy engine can authorize recovery and all limits are unit-tested.
 
-### T06 — Qwen/Ollama advisory reasoning
-- Send structured event, classification, and policy context to Qwen using JSON output.
-- Set `think: false` and cap output with `num_predict: 128` so the dashboard remains responsive.
-- Parse and validate recommendation, explanation, and confidence.
-- On timeout, unavailable Ollama, or malformed output, show policy-grounded fallback reasoning without changing policy authority.
+### T06 — NIM advisory reasoning
+- Wire the Python backend to `integrate.api.nvidia.com/v1/chat/completions`.
+- Create a strict `_SYSTEM_PROMPT` bounded by the deterministic policy result.
+- Produce structured JSON explanations.
+- On timeout, unavailable API, or malformed output, show policy-grounded fallback reasoning without changing policy authority.
 - **Complete when:** successful calls show `reasoning_success=true`; failures show a useful fallback and never authorize an action.
 
 ### T07 — End-to-end recovery pipeline
@@ -254,7 +253,7 @@ npm test -- --run
 npm run build
 ```
 
-For the live verification, start Ollama with `qwen3.5:latest`, start the FastAPI backend on port `8000`, start Vite on port `5173`, submit an insufficient-funds event, and verify `Reasoning: Generated`, a recovered or safely bounded outcome, and a new audit record. Stop Ollama or use an invalid model only for the explicit fallback-path check.
+For the live verification, provide the NIM API key, start the FastAPI backend on port `8000`, start Vite on port `5173`, submit an insufficient-funds event, and verify `Reasoning: Generated`, a recovered or safely bounded outcome, and a new audit record. Provide an invalid API key only for the explicit fallback-path check.
 
 ---
 
@@ -263,7 +262,7 @@ For the live verification, start Ollama with `qwen3.5:latest`, start the FastAPI
 - **0:00–0:15** — Quote (paraphrased) + one-line problem: revenue silently leaking through failed payments.
 - **0:15–1:45** — Live demo: a failure comes in → diagnosis fires (Qwen-generated reasoning visible) → bounded action executes → escalation case shown explicitly stopping instead of looping.
 - **1:45–2:30** — Batch metrics screen: real numbers, real exception list, held-out slice called out as held-out.
-- **2:30–3:00** — Close: explain that Qwen/Ollama provides advisory reasoning while deterministic policy controls recovery + one sentence on what you'd add with more time.
+- **2:30–3:00** — Close: explain that NIM provides advisory reasoning while deterministic policy controls recovery + one sentence on what you'd add with more time.
 
 **Pre-empt these questions cold — don't improvise them:**
 - *"Why not just retry everything automatically?"* → amount-cap + stopping-rule answer, plus: rules decide, Qwen only explains — never decides unsupervised.
@@ -280,7 +279,7 @@ For the live verification, start Ollama with `qwen3.5:latest`, start the FastAPI
 - **Audit trail:** append-only, timestamped, queryable/filterable in the dashboard.
 - **One failure handled gracefully:** a real exception path shown live, not narrated.
 - **Honest metrics:** reported on the held-out batch, includes false-escalation cost, no cherry-picking.
-- **Built in the actual stack:** Qwen via Ollama for reasoning, with a deterministic policy boundary.
+- **Built in the actual stack:** NVIDIA NIM for reasoning, with a deterministic policy boundary.
 
 ---
 
@@ -288,7 +287,7 @@ For the live verification, start Ollama with `qwen3.5:latest`, start the FastAPI
 
 - Hinglish notification copy for mandate re-auth prompts.
 - A "promise-to-pay" flag when a customer manually confirms they'll pay later — tracked, not auto-retried.
-- Natural-language query bar on the dashboard, if a bounded Qwen/Ollama-assisted query loop is added.
+- Natural-language query bar on the dashboard, if a bounded NIM-assisted query loop is added.
 
 ---
 

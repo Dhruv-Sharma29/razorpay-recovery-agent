@@ -1,8 +1,10 @@
-# Failed-Payment & Subscription Recovery Agent
+# Reflow
 
-A safety-first recovery pipeline for failed Razorpay-style payment events. The system classifies failures with deterministic rules, evaluates bounded recovery policy, asks local Qwen for an explanation, executes only policy-approved actions in a sandbox executor, and appends every result to a SQLite audit log for the React dashboard.
+**Failed-payment & subscription recovery agent.**
 
-> **Rules decide. Qwen explains. The executor acts. The audit log records.**
+A safety-first recovery pipeline for failed Razorpay-style payment events. The system classifies failures with deterministic rules, evaluates bounded recovery policy, asks NVIDIA NIM (Nemotron) for an explanation, executes only policy-approved actions in a sandbox executor, and appends every result to a SQLite audit log for the React dashboard.
+
+> **Rules decide. Nemotron explains. The executor acts. The audit log records.**
 
 ## Current implementation status
 
@@ -10,7 +12,7 @@ The golden path is implemented end to end with synthetic/Razorpay-shaped events:
 
 ```text
 payment event → rules-first classification → bounded policy decision
-→ Qwen explanation (or safe fallback) → mock execution → escalation/audit → dashboard
+→ Nemotron explanation (or safe fallback) → mock execution → escalation/audit → dashboard
 ```
 
 The current `MockExecutor` simulates recovery and does not call Razorpay. Razorpay credentials are reserved in `.env.example` for a future adapter; no secrets are required to run the current demo or test suite.
@@ -40,7 +42,7 @@ The current `MockExecutor` simulates recovery and does not call Razorpay. Razorp
                  ▼                           ▼
        ┌────────────────────┐      ┌──────────────────┐
        │ RecoveryReasoner   │      │ EscalationHandler│
-       │ Qwen via Ollama    │      │ fail-closed      │
+       │ Nemotron via NIM   │      │ fail-closed      │
        │ explanation only   │      └────────┬─────────┘
        └──────────┬─────────┘               │
                   └──────────────┬─────────┘
@@ -67,7 +69,7 @@ Every event is traceable as:
 CAUSE → RULE → BOUND → ACTION → OUTCOME
 ```
 
-Qwen receives the event, classification, and already-computed policy decision. Its output is display-only. If Ollama is unavailable, times out, or returns malformed JSON, the reasoner creates a deterministic fallback without changing the policy decision.
+Nemotron receives the event, classification, and already-computed policy decision. Its output is display-only. If the NIM API is unavailable, times out, or returns malformed JSON, the reasoner creates a deterministic fallback without changing the policy decision.
 
 ## Failure taxonomy
 
@@ -100,7 +102,7 @@ Global guards are enforced by `RecoveryPolicyEngine`:
 - Invalid amounts, missing classifications, exhausted limits, and unknown failures escalate.
 - The executor runs only when `automatic_recovery_allowed` is true.
 - Escalations, stops, execution failures, reasoning failures, and audit failures are recorded.
-- Neither Qwen nor the dashboard can authorize or expand a recovery action.
+- Neither Nemotron nor the dashboard can authorize or expand a recovery action.
 
 ## API
 
@@ -148,7 +150,7 @@ cp .env.example .env
 uvicorn app.main:app --reload
 ```
 
-Ollama is optional for the pipeline: without a running Ollama server, Qwen explanations become safe deterministic fallbacks. To use local Qwen explanations, start Ollama separately and ensure the model named by `OLLAMA_MODEL` is available.
+NIM is optional for the pipeline: without a reachable NIM API, Nemotron explanations become safe deterministic fallbacks. To use live explanations, set `NIM_API_KEY` and ensure the model named by `NIM_MODEL` is available on the NIM catalog.
 
 ### Frontend
 
@@ -220,7 +222,7 @@ The test suite covers classification, every policy rule, stopping rules, fail-cl
 │   │   ├── models/         # Pydantic payment-event schema
 │   │   ├── pipeline/       # end-to-end orchestration
 │   │   ├── policy/         # authoritative bounded policy engine
-│   │   ├── reasoning/      # Qwen/Ollama explainer and fallback
+│   │   ├── reasoning/      # Nemotron/NIM explainer and fallback
 │   │   ├── dashboard.py    # FastAPI dashboard endpoints
 │   │   └── main.py         # FastAPI application
 │   ├── tests/
@@ -240,8 +242,9 @@ Copy `backend/.env.example` to `backend/.env` and adjust as needed:
 ```dotenv
 RAZORPAY_KEY_ID=
 RAZORPAY_KEY_SECRET=
-OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_MODEL=qwen3.5:latest
+NIM_API_KEY=
+NIM_BASE_URL=https://integrate.api.nvidia.com/v1
+NIM_MODEL=nvidia/nemotron-3-nano-omni-30b-a3b-reasoning
 DATABASE_URL=sqlite:///./recovery.db
 AUTO_RECOVERY_AMOUNT_LIMIT=500000
 ```

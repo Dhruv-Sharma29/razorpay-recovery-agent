@@ -99,7 +99,7 @@ def verify_demo():
 
     print("\nDEMO VERIFICATION RESULTS:")
     for s in scenarios:
-        print(f"✅ {s}")
+        print(f"[OK] {s}")
 
 
 if __name__ == "__main__":

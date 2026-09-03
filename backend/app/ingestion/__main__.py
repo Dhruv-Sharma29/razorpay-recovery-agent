@@ -38,7 +38,7 @@ def main() -> None:
         sys.exit(1)
 
     print(json.dumps(stats, indent=2))
-    print(f"\n✅ Generated {stats['total_events']} events")
+    print(f"\nGenerated {stats['total_events']} events")
     print(f"   Development: {stats['dev_count']}  →  {stats['synthetic_path']}")
     print(f"   Held-out:    {stats['held_out_count']}  →  {stats['held_out_path']}")
 
