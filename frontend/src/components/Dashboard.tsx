@@ -232,6 +232,7 @@ export default function Dashboard() {
                 <option value="AUTHENTICATION_ERROR">AUTHENTICATION_ERROR</option>
                 <option value="SOMETHING_UNKNOWN">Unknown / Ambiguous</option>
               </select>
+              <span className="form-hint">Razorpay-style failure code</span>
             </div>
 
             <div className="form-field">
@@ -283,6 +284,7 @@ export default function Dashboard() {
                 <option value="card">Card</option>
                 <option value="netbanking">Netbanking</option>
               </select>
+              <span className="form-hint">Original payment rail</span>
             </div>
           </div>
 

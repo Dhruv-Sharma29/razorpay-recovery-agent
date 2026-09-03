@@ -571,14 +571,16 @@ body {
 .form-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 0.9rem;
+  gap: 0.9rem 1rem;
+  align-items: start;
   margin-bottom: 1.25rem;
 }
 
 .form-field {
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
+  gap: 0.35rem;
+  min-width: 0;
 }
 
 .form-field label {
@@ -591,14 +593,47 @@ body {
 
 .form-field input,
 .form-field select {
+  width: 100%;
+  height: 42px;
   background: var(--bg-input);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
-  padding: 0.6rem 0.75rem;
+  padding: 0 0.75rem;
   color: var(--text-primary);
   font-size: 0.88rem;
   font-family: inherit;
+  line-height: normal;
   transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+/* Custom chevron so <select> matches the height and look of the number
+   inputs instead of relying on inconsistent native platform styling. */
+.form-field select {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  padding-right: 2rem;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%235b6478' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  cursor: pointer;
+}
+
+[data-theme="dark"] .form-field select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238b94ab' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+}
+
+/* Drop the native number steppers so the amount/attempt fields read as
+   the same clean box as the selects. min/max bounds still apply. */
+.form-field input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.form-field input[type="number"]::-webkit-outer-spin-button,
+.form-field input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 
 .form-field input:focus,
@@ -608,9 +643,12 @@ body {
   box-shadow: 0 0 0 3px var(--brand-primary-soft);
 }
 
+/* Reserve the hint row on every field so all four columns keep the same
+   label / control / hint rhythm and line up top and bottom. */
 .form-hint {
   font-size: 0.7rem;
   color: var(--text-muted);
+  min-height: 1rem;
 }
 
 /* --------------------------------------------------- */
