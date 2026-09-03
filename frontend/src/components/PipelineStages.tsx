@@ -12,6 +12,7 @@
  */
 
 import type { DashboardResult } from "../types/dashboard";
+import { formatInr } from "../utils/currency";
 
 interface PipelineStagesProps {
   result: DashboardResult;
@@ -34,7 +35,7 @@ interface Stage {
 
 function formatAmount(paise: number | null): string {
   if (paise === null || paise === undefined) return "—";
-  return `₹${(paise / 100).toLocaleString("en-IN", { minimumFractionDigits: 2 })}`;
+  return formatInr(paise);
 }
 
 function buildStages(result: DashboardResult): Stage[] {

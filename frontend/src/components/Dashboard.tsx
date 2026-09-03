@@ -21,6 +21,7 @@
 import { useEffect, useState } from "react";
 
 import { getAuditLog, processPayment } from "../api/client";
+import { rupeesToPaise } from "../utils/currency";
 import type {
   AuditRecord,
   DashboardResult,
@@ -46,9 +47,46 @@ const MIN_AMOUNT_RUPEES = MIN_AMOUNT_PAISE / 100; // ₹1
 const MAX_AMOUNT_RUPEES = MAX_AMOUNT_PAISE / 100; // ₹1,00,000
 const DEFAULT_AMOUNT_RUPEES = 1499;
 
-function rupeesToPaise(rupees: number): number {
-  return Math.round(rupees * 100);
+/**
+ * When the operator picks an error code, the description and category must
+ * move with it. The backend classifier keys on error_code first and only
+ * falls back to the description, so a stale description would otherwise
+ * hijack classification — e.g. the ambiguous case, left with the default
+ * "insufficient funds" description, would match the insufficient-funds
+ * phrase and never read as unknown.
+ */
+interface ErrorCodePreset {
+  description: string;
+  category: PaymentEventPayload["failure_category"];
 }
+
+const ERROR_CODE_PRESETS: Record<string, ErrorCodePreset> = {
+  INSUFFICIENT_FUNDS: {
+    description: "Payment failed due to insufficient funds",
+    category: "insufficient_funds",
+  },
+  EXPIRED_CARD: {
+    description: "The card has expired",
+    category: "expired_card",
+  },
+  GATEWAY_ERROR: {
+    description:
+      "Gateway timeout: the payment gateway did not respond in time",
+    category: "network_error",
+  },
+  BANK_DECLINED: {
+    description: "The payment was declined by the issuing bank",
+    category: "bank_decline",
+  },
+  AUTHENTICATION_ERROR: {
+    description: "Authentication failed during 3D Secure / OTP verification",
+    category: "authentication_failure",
+  },
+  SOMETHING_UNKNOWN: {
+    description: "Payment failed for an unspecified reason",
+    category: "unknown",
+  },
+};
 
 const MIN_ATTEMPT = 1;
 const MAX_ATTEMPT = 10;
@@ -66,7 +104,7 @@ function defaultPayload(): PaymentEventPayload {
     payment_method: "upi",
     error_code: "INSUFFICIENT_FUNDS",
     error_description: "Payment failed due to insufficient funds",
-    failure_category: "unknown",
+    failure_category: "insufficient_funds",
     attempt_number: 1,
     mandate_status: null,
     timestamp: new Date().toISOString(),
@@ -189,6 +227,16 @@ export default function Dashboard() {
     );
   }
 
+  function handleErrorCodeChange(code: string) {
+    const preset = ERROR_CODE_PRESETS[code];
+    setPayload((p) => ({
+      ...p,
+      error_code: code,
+      error_description: preset ? preset.description : p.error_description,
+      failure_category: preset ? preset.category : p.failure_category,
+    }));
+  }
+
   function handleAttemptChange(raw: string) {
     const parsed = parseInt(raw, 10);
     setPayload((p) => ({
@@ -221,9 +269,7 @@ export default function Dashboard() {
               <select
                 id="error_code"
                 value={payload.error_code}
-                onChange={(e) =>
-                  setPayload((p) => ({ ...p, error_code: e.target.value }))
-                }
+                onChange={(e) => handleErrorCodeChange(e.target.value)}
               >
                 <option value="INSUFFICIENT_FUNDS">INSUFFICIENT_FUNDS</option>
                 <option value="EXPIRED_CARD">EXPIRED_CARD</option>
