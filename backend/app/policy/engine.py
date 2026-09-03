@@ -33,6 +33,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from app.config import settings
 from app.classifier.result import ClassificationResult
 from app.models.payment_event import FailedTransactionEvent, FailureCategory
 from app.policy.result import (
@@ -147,10 +148,12 @@ class RecoveryPolicyEngine:
     """
 
     def __init__(self, amount_limit: int | None = None) -> None:
+        # Honor the configured limit (AUTO_RECOVERY_AMOUNT_LIMIT) when the
+        # caller does not pass one explicitly, instead of a hardcoded constant.
         if amount_limit is not None:
             self._amount_limit = amount_limit
         else:
-            self._amount_limit = DEFAULT_AMOUNT_LIMIT
+            self._amount_limit = settings.auto_recovery_amount_limit
 
     @property
     def amount_limit(self) -> int:

@@ -221,16 +221,51 @@ class AuditLogger:
             record=record,
         )
 
-    def list_records(self) -> list[AuditRecord]:
-        """Return all audit rows in append order (oldest first)."""
-        cursor = self._connection.execute(
-            "SELECT payload FROM audit_log ORDER BY rowid ASC"
-        )
+    def list_records(
+        self,
+        *,
+        limit: int | None = None,
+        offset: int = 0,
+        outcome: str | None = None,
+    ) -> list[AuditRecord]:
+        """Return audit rows in append order (oldest first).
+
+        Args:
+            limit: Maximum rows to return. ``None`` returns all (default,
+                preserving the original behavior).
+            offset: Number of rows to skip, for pagination.
+            outcome: Optional ``final_outcome`` filter (e.g. "recovered").
+        """
+        sql = "SELECT payload FROM audit_log"
+        params: list[Any] = []
+        if outcome is not None:
+            sql += " WHERE json_extract(payload, '$.final_outcome') = ?"
+            params.append(outcome)
+        sql += " ORDER BY rowid ASC"
+        if limit is not None:
+            sql += " LIMIT ? OFFSET ?"
+            params.extend([int(limit), int(offset)])
+        elif offset:
+            # SQLite requires a LIMIT before OFFSET; -1 means "all remaining".
+            sql += " LIMIT -1 OFFSET ?"
+            params.append(int(offset))
+
+        cursor = self._connection.execute(sql, params)
         records: list[AuditRecord] = []
         for (payload,) in cursor.fetchall():
             data = json.loads(payload)
             records.append(AuditRecord.model_validate(data))
         return records
+
+    def count_records(self, *, outcome: str | None = None) -> int:
+        """Return the total number of audit rows (optionally filtered)."""
+        sql = "SELECT COUNT(*) FROM audit_log"
+        params: list[Any] = []
+        if outcome is not None:
+            sql += " WHERE json_extract(payload, '$.final_outcome') = ?"
+            params.append(outcome)
+        row = self._connection.execute(sql, params).fetchone()
+        return int(row[0]) if row else 0
 
     def close(self) -> None:
         self._connection.close()

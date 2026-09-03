@@ -1,10 +1,28 @@
+import logging
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.dashboard import router as dashboard_router
 
-app = FastAPI(title="Razorpay Recovery Agent")
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: the append-only audit store is initialized (tables ensured) when
+    # the dashboard module is imported; surface the resolved database on boot.
+    from app.dashboard import _audit_logger
+
+    logger.info("Audit store ready at %s", _audit_logger.database_url)
+    yield
+    # Shutdown: nothing destructive — the shared connection is reused across
+    # requests for the life of the process.
+
+
+app = FastAPI(title="Razorpay Recovery Agent", lifespan=lifespan)
 app.state.settings = settings
 
 # CORS: restrict to the configured frontend origins. A wildcard is not used

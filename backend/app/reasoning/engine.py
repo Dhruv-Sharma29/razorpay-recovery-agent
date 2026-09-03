@@ -35,8 +35,9 @@ from app.reasoning.result import ReasoningResult
 
 logger = logging.getLogger(__name__)
 
-# Default timeout for NIM HTTP calls (seconds).
-_DEFAULT_TIMEOUT = 30.0
+# Default timeout for NIM HTTP calls (seconds). Kept short so a slow or
+# unreachable NIM endpoint fails over to the deterministic fallback quickly.
+_DEFAULT_TIMEOUT = 15.0
 
 
 # ---------------------------------------------------------------------------
@@ -181,6 +182,15 @@ def _parse_nim_response(
             classification=classification,
         )
 
+    # The response must be a JSON object; a list/scalar is not a valid reply.
+    if not isinstance(parsed, dict):
+        return _build_fallback(
+            policy_decision,
+            model_id,
+            f"Model output was not a JSON object (got {type(parsed).__name__})",
+            classification=classification,
+        )
+
     # Validate required fields
     recommendation = parsed.get("recommendation")
     explanation = parsed.get("explanation")
@@ -311,6 +321,18 @@ class RecoveryReasoner:
                 policy_action_allowed=False,
                 is_fallback=True,
                 error="policy_decision is None",
+            )
+
+        # No API key configured: skip the network call entirely and return the
+        # deterministic fallback immediately (avoids a guaranteed-401 round trip
+        # and keeps the demo fast when NIM is not wired up).
+        if not (self._api_key and self._api_key.strip()):
+            logger.info("NIM_API_KEY not configured; using deterministic fallback")
+            return _build_fallback(
+                policy_decision,
+                self._model,
+                "NIM_API_KEY not configured; skipped NIM call",
+                classification=classification,
             )
 
         user_prompt = _build_user_prompt(

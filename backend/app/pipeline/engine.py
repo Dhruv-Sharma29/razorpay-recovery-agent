@@ -15,6 +15,7 @@ from app.audit.store import AuditLogger
 from app.classifier.engine import FailureClassifier
 from app.escalation.handler import EscalationHandler
 from app.executor.base import RecoveryExecutor
+from app.executor.result import ExecutionResult, ExecutionStatus
 from app.models.payment_event import FailedTransactionEvent
 from app.pipeline.result import PipelineResult
 from app.policy.engine import RecoveryPolicyEngine
@@ -106,10 +107,26 @@ class RecoveryPipeline:
                 try:
                     execution = self.executor.execute(payment_event, policy_decision)
                 except Exception as exc:
-                    logger.warning("Pipeline: Executor boundary failed: %s", exc)
-                    # We don't construct a fake ExecutionResult here because
-                    # executor.execute itself catches exceptions and returns FAILED.
-                    # This block is for catastrophic errors.
+                    # Catastrophic executor failure (the executor itself raised
+                    # rather than returning a structured result). Never leave
+                    # execution as None: build a FAILED result so escalation
+                    # opens (EXECUTOR_FAILURE) and the outcome is clearly an
+                    # execution failure rather than a misleading recorded/denied.
+                    logger.error("Pipeline: Executor raised unexpectedly: %s", exc)
+                    action_attempted = (
+                        policy_decision.action.value if policy_decision else "unknown"
+                    )
+                    execution = ExecutionResult(
+                        status=ExecutionStatus.FAILED,
+                        action_attempted=action_attempted,
+                        payment_id=payment_id,
+                        event_id=event_id,
+                        executed=False,
+                        execution_id=None,
+                        idempotency_key=f"error:{payment_id}:{action_attempted}",
+                        error=f"Executor raised unexpectedly: {exc}",
+                        reason="Execution failed catastrophically; escalating for manual review.",
+                    )
             else:
                 # Do NOT execute if policy denies, is missing, or is malformed.
                 pass

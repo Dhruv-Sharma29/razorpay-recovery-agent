@@ -37,8 +37,9 @@ class MockExecutor(RecoveryExecutor):
         self,
         simulate_failure: bool = False,
         simulate_failure_message: str = "Simulated downstream failure",
+        state_store=None,
     ) -> None:
-        super().__init__()
+        super().__init__(state_store=state_store)
         self.simulate_failure = simulate_failure
         self.simulate_failure_message = simulate_failure_message
         self.execution_log: list[dict] = []

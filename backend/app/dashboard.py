@@ -16,8 +16,10 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field, ValidationError
+
+from app.config import settings
 
 from app.audit.result import AuditOutcome, AuditRecord
 from app.audit.store import AuditLogger
@@ -25,6 +27,7 @@ from app.classifier.engine import FailureClassifier
 from app.escalation.handler import EscalationHandler
 from app.executor.mock import MockExecutor
 from app.models.payment_event import FailedTransactionEvent
+from app.persistence.store import RecoveryStateStore
 from app.pipeline.engine import RecoveryPipeline
 from app.pipeline.result import PipelineResult
 from app.policy.engine import RecoveryPolicyEngine
@@ -38,12 +41,17 @@ router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 # Shared pipeline instance (in-memory SQLite, mock executor)
 # ---------------------------------------------------------------------------
 
-_audit_logger = AuditLogger("sqlite:///:memory:")
+# Persistent audit store: honors DATABASE_URL (defaults to a file DB) so
+# records survive a backend restart instead of vanishing with an in-memory DB.
+_audit_logger = AuditLogger(settings.database_url)
+# Durable idempotency + attempt history, shared with the executor so recovery
+# state survives a backend restart.
+_state_store = RecoveryStateStore(settings.database_url)
 _pipeline = RecoveryPipeline(
     classifier=FailureClassifier(),
     policy_engine=RecoveryPolicyEngine(),
     reasoner=RecoveryReasoner(),
-    executor=MockExecutor(),
+    executor=MockExecutor(state_store=_state_store),
     escalation_handler=EscalationHandler(),
     audit_logger=_audit_logger,
 )
@@ -133,9 +141,12 @@ class AuditLogResponse(BaseModel):
     """List of audit records."""
 
     records: list[AuditRecord] = Field(
-        default_factory=list, description="Audit log entries"
+        default_factory=list, description="Audit log entries (this page)"
     )
-    count: int = Field(default=0, description="Number of records")
+    count: int = Field(default=0, description="Number of records in this page")
+    total: int = Field(
+        default=0, description="Total matching records, ignoring pagination"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -256,14 +267,30 @@ def process_payment(event: FailedTransactionEvent) -> DashboardResponse:
 
 
 @router.get("/audit", response_model=AuditLogResponse)
-def get_audit_log() -> AuditLogResponse:
-    """Return the full audit log. Read-only."""
+def get_audit_log(
+    limit: int | None = Query(
+        default=None, ge=1, le=500,
+        description="Max records to return; omit to return all",
+    ),
+    offset: int = Query(default=0, ge=0, description="Records to skip (pagination)"),
+    outcome: str | None = Query(
+        default=None, description="Filter by final_outcome (e.g. 'recovered')"
+    ),
+) -> AuditLogResponse:
+    """Return audit records. Read-only.
+
+    Supports pagination (``limit``/``offset``) and an optional
+    ``final_outcome`` filter. Omitting ``limit`` returns all matching records
+    for backward compatibility. ``count`` is the size of the returned page;
+    ``total`` is the full matching count.
+    """
     try:
-        records = _audit_logger.list_records()
+        records = _audit_logger.list_records(limit=limit, offset=offset, outcome=outcome)
+        total = _audit_logger.count_records(outcome=outcome)
     except Exception as exc:
         logger.error("Audit log retrieval failed: %s", exc)
         raise HTTPException(
             status_code=500, detail=f"Audit log error: {exc}"
         ) from exc
 
-    return AuditLogResponse(records=records, count=len(records))
+    return AuditLogResponse(records=records, count=len(records), total=total)
