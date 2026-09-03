@@ -7,10 +7,12 @@ from app.dashboard import router as dashboard_router
 app = FastAPI(title="Razorpay Recovery Agent")
 app.state.settings = settings
 
-# CORS for frontend dev server
+# CORS: restrict to the configured frontend origins. A wildcard is not used
+# because "*" is invalid alongside allow_credentials=True (browsers reject it),
+# and it would expose the API to any origin.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.cors_origins_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

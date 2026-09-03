@@ -10,12 +10,38 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import Dashboard from "../components/Dashboard";
 import * as api from "../api/client";
+import type { DashboardResult } from "../types/dashboard";
 
 // Mock the API client
 vi.mock("../api/client", () => ({
   processPayment: vi.fn(),
   getAuditLog: vi.fn().mockResolvedValue({ records: [], count: 0 }),
 }));
+
+// A generic escalation result, reused by the adversarial-button tests where
+// the outcome doesn't matter — only that the button sent the right payload.
+const escalatedResult: DashboardResult = {
+  payment_id: "pay_adv",
+  event_id: "evt_adv",
+  failure_category: "insufficient_funds",
+  classification_reason: "x",
+  policy_action: "escalate",
+  policy_reason: "Escalated by a bounded stopping rule",
+  automatic_recovery_allowed: false,
+  reasoning_recommendation: "Escalate",
+  reasoning_explanation: "x",
+  reasoning_success: true,
+  execution_status: null,
+  execution_reason: null,
+  escalation_status: "open",
+  escalation_reason: "x",
+  escalation_severity: "medium",
+  final_outcome: "escalated",
+  timestamp: "2026-09-01T10:00:00Z",
+  amount: 149900,
+  attempt_number: 1,
+  error: null,
+};
 
 describe("Dashboard Component", () => {
   beforeEach(() => {
@@ -195,6 +221,45 @@ describe("Dashboard Component", () => {
     await waitFor(() => {
       expect(screen.getByText("immediate_retry")).toBeInTheDocument();
       expect(screen.getByText("Immediate retry once permitted")).toBeInTheDocument();
+    });
+  });
+
+  it("8. 'over amount cap' button submits ₹90,000 as paise", async () => {
+    vi.mocked(api.processPayment).mockResolvedValue(escalatedResult);
+    render(<Dashboard />);
+
+    fireEvent.click(screen.getByTestId("break-amount-btn"));
+
+    await waitFor(() => {
+      expect(api.processPayment).toHaveBeenCalledWith(
+        expect.objectContaining({ amount: 9_000_000, error_code: "INSUFFICIENT_FUNDS" }),
+      );
+    });
+  });
+
+  it("9. 'past retry limit' button submits attempt 5", async () => {
+    vi.mocked(api.processPayment).mockResolvedValue(escalatedResult);
+    render(<Dashboard />);
+
+    fireEvent.click(screen.getByTestId("break-attempt-btn"));
+
+    await waitFor(() => {
+      expect(api.processPayment).toHaveBeenCalledWith(
+        expect.objectContaining({ attempt_number: 5 }),
+      );
+    });
+  });
+
+  it("10. 'unknown failure cause' button submits an unrecognized error code", async () => {
+    vi.mocked(api.processPayment).mockResolvedValue(escalatedResult);
+    render(<Dashboard />);
+
+    fireEvent.click(screen.getByTestId("break-unknown-btn"));
+
+    await waitFor(() => {
+      expect(api.processPayment).toHaveBeenCalledWith(
+        expect.objectContaining({ error_code: "UNRECOGNIZED_ERROR_CODE" }),
+      );
     });
   });
 });

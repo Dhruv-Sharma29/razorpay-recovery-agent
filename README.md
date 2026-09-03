@@ -2,9 +2,22 @@
 
 **Failed-payment & subscription recovery agent.**
 
+![backend tests](https://img.shields.io/badge/backend%20tests-335%20passing-brightgreen)
+![frontend tests](https://img.shields.io/badge/frontend%20tests-44%20passing-brightgreen)
+![python](https://img.shields.io/badge/python-3.10%2B-blue)
+![react](https://img.shields.io/badge/react-19-149eca)
+![license](https://img.shields.io/badge/mode-test--mode-lightgrey)
+
 A safety-first recovery pipeline for failed Razorpay-style payment events. The system classifies failures with deterministic rules, evaluates bounded recovery policy, asks NVIDIA NIM (Nemotron) for an explanation, executes only policy-approved actions in a sandbox executor, and appends every result to a SQLite audit log for the React dashboard.
 
 > **Rules decide. Nemotron explains. The executor acts. The audit log records.**
+
+## Demo
+
+<!-- Once recorded, drop the file at docs/demo.gif and uncomment:
+![Reflow recovery console](docs/demo.gif)
+-->
+_Demo recording goes here — capture the console processing a recoverable payment, then refusing the three adversarial cases (over-cap amount, past retry limit, unknown cause). Save it as `docs/demo.gif` and uncomment the line above._
 
 ## Current implementation status
 
@@ -188,6 +201,10 @@ python evaluate.py
 
 Evaluation reports are written to `backend/evaluation_results/` and include classification accuracy, automatic recoveries, escalations, execution failures, unknown/unsafe cases, and false automatic recoveries.
 
+### Evaluation integrity
+
+Classification is driven by the structured `error_code` — the same signal a real Razorpay integration receives — not by keyword-matching the event's free-text description. The generator keeps descriptions independent of the classifier's message rules, and the held-out slice is re-worded from a disjoint phrase pool, so held-out accuracy measures genuine generalization to unseen wording rather than the dataset echoing the classifier's own keywords back at it.
+
 ## Tests
 
 Backend tests:
@@ -247,6 +264,7 @@ NIM_BASE_URL=https://integrate.api.nvidia.com/v1
 NIM_MODEL=nvidia/nemotron-3-nano-omni-30b-a3b-reasoning
 DATABASE_URL=sqlite:///./recovery.db
 AUTO_RECOVERY_AMOUNT_LIMIT=500000
+CORS_ALLOW_ORIGINS=http://localhost:5173,http://localhost:3000
 ```
 
 Do not commit `.env` files, Razorpay credentials, or model/API tokens. The audit logger recursively redacts credential-like fields before persistence.

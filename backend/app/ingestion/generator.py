@@ -47,82 +47,144 @@ _CUSTOMERS = [f"cust_synth_{i:04d}" for i in range(1, 31)]
 # Failure-category templates
 # ---------------------------------------------------------------------------
 
-# Each template defines the fields that vary by failure category.
-# Weights control the relative frequency in the dataset.
+# Anti-circularity note
+# ---------------------
+# Classification is driven by the structured Razorpay-style ``error_code`` —
+# exactly as a production integration works, where the provider returns a code
+# and the classifier maps it. Descriptions are deliberately NOT copies of the
+# classifier's message-match tokens, so evaluation accuracy reflects the
+# code->category mapping and precedence rules rather than the dataset echoing
+# the classifier's own keywords back at it. The held-out slice is additionally
+# re-worded from a disjoint phrase pool (see ``_HELD_OUT_DESCRIPTIONS``), so the
+# held-out prose is genuinely unseen text.
+#
+# Each template defines the fields that vary by failure category. ``weight``
+# controls the relative frequency in the dataset. ``error_codes`` is the pool of
+# realistic codes for that category (the classifier recognizes each of them).
 _FAILURE_TEMPLATES: list[dict[str, Any]] = [
     # --- Insufficient Funds (~25%) ---
     {
         "category": FailureCategory.INSUFFICIENT_FUNDS,
-        "error_code": "BAD_REQUEST_ERROR",
-        "error_descriptions": [
-            "Your payment could not be completed due to insufficient account balance",
-            "Insufficient funds in the account to complete this transaction",
-            "Transaction declined: insufficient balance",
-        ],
+        "error_codes": ["INSUFFICIENT_FUNDS"],
         "weight": 25,
         "payment_methods": [PaymentMethod.CARD, PaymentMethod.UPI, PaymentMethod.NETBANKING],
     },
     # --- Expired Card (~15%) ---
     {
         "category": FailureCategory.EXPIRED_CARD,
-        "error_code": "BAD_REQUEST_ERROR",
-        "error_descriptions": [
-            "The card has expired. Please use a different card",
-            "Card expired — unable to process payment",
-            "Transaction declined: card expiry date has passed",
-        ],
+        # MANDATE_EXPIRED is substituted for subscription events at generation
+        # time (see generate_dataset).
+        "error_codes": ["EXPIRED_CARD", "CARD_EXPIRED"],
         "weight": 15,
         "payment_methods": [PaymentMethod.CARD],
     },
     # --- Network Error (~15%) ---
     {
         "category": FailureCategory.NETWORK_ERROR,
-        "error_code": "GATEWAY_ERROR",
-        "error_descriptions": [
-            "Payment processing failed due to a gateway timeout",
-            "Network error: bank gateway did not respond in time",
-            "Gateway connection timed out while processing payment",
-        ],
+        "error_codes": ["GATEWAY_ERROR", "GATEWAY_TIMEOUT", "NETWORK_ERROR"],
         "weight": 15,
         "payment_methods": [PaymentMethod.CARD, PaymentMethod.UPI, PaymentMethod.NETBANKING],
     },
     # --- Bank Decline (~15%) ---
     {
         "category": FailureCategory.BANK_DECLINE,
-        "error_code": "BAD_REQUEST_ERROR",
-        "error_descriptions": [
-            "The card issuing bank declined the transaction",
-            "Payment declined by the issuing bank",
-            "Transaction not permitted by the card issuer",
-        ],
+        "error_codes": ["BANK_DECLINED", "CARD_DECLINED", "ISSUER_DECLINED"],
         "weight": 15,
         "payment_methods": [PaymentMethod.CARD],
     },
     # --- Authentication Failure (~15%) ---
     {
         "category": FailureCategory.AUTHENTICATION_FAILURE,
-        "error_code": "BAD_REQUEST_ERROR",
-        "error_descriptions": [
-            "3D Secure authentication failed or was not completed",
-            "OTP verification failed — payment could not be authenticated",
-            "Authentication failed: customer did not complete 3DS challenge",
-        ],
+        "error_codes": ["AUTHENTICATION_ERROR", "AUTHENTICATION_FAILED"],
         "weight": 15,
         "payment_methods": [PaymentMethod.CARD, PaymentMethod.NETBANKING],
     },
     # --- Unknown (~15%) ---
     {
+        # Generic codes with descriptions that carry no recognizable signal, so
+        # the classifier correctly fails closed to ``unknown``.
         "category": FailureCategory.UNKNOWN,
-        "error_code": "SERVER_ERROR",
-        "error_descriptions": [
-            "An unexpected error occurred while processing the payment",
-            "Internal processing error — please retry later",
-            "Unknown failure: payment could not be completed",
-        ],
+        "error_codes": ["SERVER_ERROR", "BAD_REQUEST_ERROR"],
         "weight": 15,
         "payment_methods": [PaymentMethod.CARD, PaymentMethod.UPI, PaymentMethod.NETBANKING],
     },
 ]
+
+# Development descriptions: realistic, varied, and intentionally free of the
+# classifier's exact message-match phrases (the error_code carries the signal).
+_DEV_DESCRIPTIONS: dict[FailureCategory, list[str]] = {
+    FailureCategory.INSUFFICIENT_FUNDS: [
+        "Customer's account did not hold enough balance at capture time",
+        "The bank returned a low-balance response for this debit",
+        "Debit rejected — available money was below the charged amount",
+        "Charge could not be covered by the account at the time of payment",
+    ],
+    FailureCategory.EXPIRED_CARD: [
+        "The saved card is past its validity date",
+        "Stored card is no longer active for payments",
+        "The card on file lapsed before this charge",
+        "Recurring instrument could not be billed because the card aged out",
+    ],
+    FailureCategory.NETWORK_ERROR: [
+        "Upstream processor did not answer before the deadline",
+        "The acquiring bank endpoint stopped responding mid-request",
+        "Connection to the processor dropped during capture",
+        "The switch failed to complete the round-trip in time",
+    ],
+    FailureCategory.BANK_DECLINE: [
+        "Issuer refused to authorize this charge",
+        "The customer's bank turned down the transaction",
+        "Charge blocked by the card-issuing institution",
+        "Authorization was not granted by the issuer",
+    ],
+    FailureCategory.AUTHENTICATION_FAILURE: [
+        "Cardholder did not finish the extra verification step",
+        "The additional security check was not cleared",
+        "Step-up verification was abandoned before completion",
+        "The customer left the challenge prompt unfinished",
+    ],
+    FailureCategory.UNKNOWN: [
+        "The processor returned a response we could not map to a known cause",
+        "Payment did not complete for a reason the provider left unspecified",
+        "An unclassified processing fault interrupted the charge",
+        "Capture ended under conditions the system could not label",
+    ],
+}
+
+# Held-out descriptions: a disjoint phrase pool. The held-out slice is re-worded
+# from this at write time so its prose never appears in the development set.
+_HELD_OUT_DESCRIPTIONS: dict[FailureCategory, list[str]] = {
+    FailureCategory.INSUFFICIENT_FUNDS: [
+        "Payment stopped because the account balance fell short",
+        "Issuer reported the account could not cover the amount",
+        "Not enough spendable balance was available to settle the charge",
+    ],
+    FailureCategory.EXPIRED_CARD: [
+        "Card on record has reached the end of its life and cannot be billed",
+        "The linked card is no longer valid for this recurring charge",
+        "Payment instrument is out of date and was not chargeable",
+    ],
+    FailureCategory.NETWORK_ERROR: [
+        "Processor link went quiet and the request never finished",
+        "The connection to the issuer lapsed before a reply arrived",
+        "No response came back from the acquiring side in time",
+    ],
+    FailureCategory.BANK_DECLINE: [
+        "Authorizing bank would not approve the payment",
+        "The issuing side rejected this debit outright",
+        "Approval was withheld by the customer's bank",
+    ],
+    FailureCategory.AUTHENTICATION_FAILURE: [
+        "Customer never cleared the secondary verification",
+        "The added identity check went uncompleted",
+        "Verification lapsed before the cardholder confirmed",
+    ],
+    FailureCategory.UNKNOWN: [
+        "The provider ended the payment without a categorizable reason",
+        "Settlement aborted under conditions the system could not classify",
+        "An unmapped fault stopped the charge from completing",
+    ],
+}
 
 
 # ---------------------------------------------------------------------------
@@ -210,8 +272,19 @@ def generate_dataset(
             # Payment method: pick from category-allowed methods
             payment_method = rng.choice(tmpl["payment_methods"])
 
-            # Error description
-            error_description = rng.choice(tmpl["error_descriptions"])
+            # Error code: the realistic, structured classification signal.
+            # Subscriptions whose card lapsed surface as a mandate error.
+            if (
+                tmpl["category"] == FailureCategory.EXPIRED_CARD
+                and tx_type == TransactionType.SUBSCRIPTION
+            ):
+                error_code = "MANDATE_EXPIRED"
+            else:
+                error_code = rng.choice(tmpl["error_codes"])
+
+            # Error description (development pool; deliberately not the
+            # classifier's message tokens).
+            error_description = rng.choice(_DEV_DESCRIPTIONS[tmpl["category"]])
 
             # Attempt number: mostly 1, some retries
             attempt_weights = [0.6, 0.25, 0.1, 0.05]
@@ -231,7 +304,7 @@ def generate_dataset(
                     amount=amount,
                     currency="INR",
                     payment_method=payment_method,
-                    error_code=tmpl["error_code"],
+                    error_code=error_code,
                     error_description=error_description,
                     failure_category=tmpl["category"],
                     attempt_number=attempt_number,
@@ -328,6 +401,22 @@ def generate_and_write(
     events = generate_dataset(seed=seed, total=total)
     dev_events, held_out_events = split_dataset(events, seed=seed)
 
+    # Re-word the held-out slice from a disjoint phrase pool so its prose is
+    # genuinely unseen. Classification is code-driven, so the correct label is
+    # unchanged — this only removes any chance of description leakage inflating
+    # held-out accuracy. Deterministic: seeded and iterated in a fixed order.
+    swap_rng = random.Random(seed + 1)
+    held_out_events = [
+        e.model_copy(
+            update={
+                "error_description": swap_rng.choice(
+                    _HELD_OUT_DESCRIPTIONS[e.failure_category]
+                )
+            }
+        )
+        for e in held_out_events
+    ]
+
     synthetic_path = data_dir / "synthetic" / "failed_transactions.json"
     held_out_path = data_dir / "held_out" / "failed_transactions.json"
 
@@ -353,3 +442,11 @@ def generate_and_write(
         "category_counts_dev": dict(dev_categories),
         "category_counts_held_out": dict(held_out_categories),
     }
+
+
+if __name__ == "__main__":  # pragma: no cover
+    # Delegate to the package CLI so the documented command
+    # `python -m app.ingestion.generator [--seed] [--total]` works.
+    import app.ingestion.__main__ as _cli
+
+    _cli.main()

@@ -15,6 +15,14 @@ class Settings(BaseSettings):
     nim_model: str = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
     database_url: str = "sqlite:///./recovery.db"
     auto_recovery_amount_limit: int = 500000
+    # Comma-separated list of browser origins allowed to call the API.
+    # Wildcards are intentionally avoided: a specific allow-list is required
+    # for credentialed CORS requests to work at all.
+    cors_allow_origins: str = "http://localhost:5173,http://localhost:3000"
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_allow_origins.split(",") if o.strip()]
 
 
 settings = Settings()
