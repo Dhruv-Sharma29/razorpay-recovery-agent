@@ -2,7 +2,7 @@
 
 ## 1. Goal and completion standard
 
-Build a locally runnable recovery agent that processes a failed Razorpay payment from ingestion through deterministic classification, bounded policy decision, advisory Qwen explanation, safe execution or escalation, append-only audit, and dashboard presentation.
+Build a locally runnable recovery agent that processes a failed Razorpay payment from ingestion through deterministic classification, bounded policy decision, advisory Nemotron explanation (via NVIDIA NIM), safe execution or escalation, append-only audit, and dashboard presentation.
 
 The repository is complete when all of the following are true:
 
@@ -62,10 +62,10 @@ The repository is complete when all of the following are true:
 **Core principle to keep visible everywhere in the build:** every action must trace back to *(cause → rule fired → bounded limit → outcome)*. That traceability is the actual deliverable, not model accuracy — and not "we called an LLM," but "we called an LLM inside an auditable, capped, deterministic decision system."
 
 **Where the AI Model actually sits (be precise about this in the pitch — judges will ask):**
-1. Root-cause reasoning string generation — Qwen reads the structured event + rule match and produces the human-readable reasoning field, grounded in the rule that actually fired.
+1. Root-cause reasoning string generation — Nemotron reads the structured event + rule match and produces the human-readable reasoning field, grounded in the rule that actually fired.
 2. (Stretch, BATCH-ONLY) NL query bar — only if implemented as a real model-assisted query over the audit log, not a keyword filter dressed up as AI.
 
-The rules engine still makes every bounded decision (retry / escalate / stop). Qwen explains; it never decides the action unsupervised. Say this explicitly on stage — it's the honest answer to the "why not just retry everything automatically" question.
+The rules engine still makes every bounded decision (retry / escalate / stop). Nemotron explains; it never decides the action unsupervised. Say this explicitly on stage — it's the honest answer to the "why not just retry everything automatically" question.
 
 ---
 
@@ -117,7 +117,7 @@ Keep the model layer intentionally small. The API request is optimized so the da
 | Auth/OTP failure | error_description mentions OTP/3DS | `AUTHENTICATION_ERROR` |
 | Unknown/ambiguous | doesn't cleanly match rules | — |
 
-Start with rules-based classification. Report rule-hit rate vs Qwen-assisted explanation rate — don't claim the classifier itself is AI-driven if it isn't.
+Start with rules-based classification. Report rule-hit rate vs Nemotron-assisted explanation rate — don't claim the classifier itself is AI-driven if it isn't.
 
 ### 4.3 Decision Policy Table (the differentiator)
 
@@ -148,7 +148,7 @@ Start with rules-based classification. Report rule-hit rate vs Qwen-assisted exp
   "attempt_number": 1,
   "outcome": "pending | recovered | failed | escalated",
   "amount_recovered": 149900,
-  "reasoning": "[Qwen-generated or policy-grounded fallback] Error matched insufficient-funds pattern; within retry limit (1/2); no amount cap triggered.",
+  "reasoning": "[Nemotron-generated or policy-grounded fallback] Error matched insufficient-funds pattern; within retry limit (1/2); no amount cap triggered.",
   "timestamp": "2026-08-31T10:00:05Z"
 }
 ```
@@ -178,7 +178,7 @@ Start with rules-based classification. Report rule-hit rate vs Qwen-assisted exp
 - Implement rules-first classification with category, confidence, rule ID, source field, and reason.
 - Make unknown or ambiguous failures explicit; do not infer an auto-recovery category.
 - Add unit tests for every rule, precedence case, and unknown path.
-- **Complete when:** classification is deterministic, explainable, and independent of Qwen.
+- **Complete when:** classification is deterministic, explainable, and independent of Nemotron.
 
 ### T05 — Bounded policy engine
 - Implement the decision table for retry, re-authorization, channel switch, notification, stop, and escalation.
@@ -196,7 +196,7 @@ Start with rules-based classification. Report rule-hit rate vs Qwen-assisted exp
 
 ### T07 — End-to-end recovery pipeline
 - Orchestrate ingestion → classification → policy → reasoning → execution/escalation → audit.
-- Preserve each component result and never allow Qwen to mutate policy or execution.
+- Preserve each component result and never allow Nemotron to mutate policy or execution.
 - Test success, denial, escalation, executor failure, reasoning failure, and audit failure paths.
 - **Complete when:** the golden path and all safety stop paths produce inspectable pipeline results.
 
@@ -215,7 +215,7 @@ Start with rules-based classification. Report rule-hit rate vs Qwen-assisted exp
 
 ### T10 — React dashboard
 - Render the live outcome, classification, policy decision, reasoning recommendation/explanation, execution, escalation, and audit trail.
-- Clearly distinguish Qwen-generated reasoning from policy-grounded fallback reasoning.
+- Clearly distinguish Nemotron-generated reasoning from policy-grounded fallback reasoning.
 - Show recovered amount/counts and filters for escalated, failed, or exceptional outcomes.
 - Keep all authorization decisions in the backend; the frontend remains display-only.
 - **Complete when:** Safari/Chrome can submit the golden-path event and visibly show the full pipeline.
@@ -229,7 +229,7 @@ Start with rules-based classification. Report rule-hit rate vs Qwen-assisted exp
 ### T12 — Documentation and demo readiness
 - Document setup, environment variables, architecture, policy table, safety boundary, fallback behavior, and test commands.
 - Capture a successful golden-path demo and one graceful failure path.
-- Prepare the pitch around bounded deterministic decisions with advisory Qwen explanations.
+- Prepare the pitch around bounded deterministic decisions with advisory Nemotron explanations.
 - **Complete when:** a new contributor can run, test, understand, and demo the complete repository.
 
 ### Task dependency order
@@ -260,12 +260,12 @@ For the live verification, provide the NIM API key, start the FastAPI backend on
 ## 6. Pitch Script — 3 Minutes, Rehearsed Cold
 
 - **0:00–0:15** — Quote (paraphrased) + one-line problem: revenue silently leaking through failed payments.
-- **0:15–1:45** — Live demo: a failure comes in → diagnosis fires (Qwen-generated reasoning visible) → bounded action executes → escalation case shown explicitly stopping instead of looping.
+- **0:15–1:45** — Live demo: a failure comes in → diagnosis fires (Nemotron-generated reasoning visible) → bounded action executes → escalation case shown explicitly stopping instead of looping.
 - **1:45–2:30** — Batch metrics screen: real numbers, real exception list, held-out slice called out as held-out.
 - **2:30–3:00** — Close: explain that NIM provides advisory reasoning while deterministic policy controls recovery + one sentence on what you'd add with more time.
 
 **Pre-empt these questions cold — don't improvise them:**
-- *"Why not just retry everything automatically?"* → amount-cap + stopping-rule answer, plus: rules decide, Qwen only explains — never decides unsupervised.
+- *"Why not just retry everything automatically?"* → amount-cap + stopping-rule answer, plus: rules decide, Nemotron only explains — never decides unsupervised.
 - *"How does this generalize beyond synthetic data?"* → taxonomy is derived from real Razorpay error codes; decision policy is merchant-configurable; that's the extensibility story.
 - *"What's your false-escalation cost?"* → have the actual computed number from the batch run, not a guess.
 
@@ -273,7 +273,7 @@ For the live verification, provide the NIM API key, start the FastAPI backend on
 
 ## 7. What Judges Will Actually Be Checking
 
-- **Explainable:** every action has a visible "why" string, Qwen-generated when available and policy-grounded on fallback — not just a category label.
+- **Explainable:** every action has a visible "why" string, Nemotron-generated when available and policy-grounded on fallback — not just a category label.
 - **Bounded:** hard caps and cooldowns enforced and demonstrably unit-tested, not just described.
 - **Gated:** amount-threshold and unknown-cause cases always escalate rather than acting autonomously.
 - **Audit trail:** append-only, timestamped, queryable/filterable in the dashboard.

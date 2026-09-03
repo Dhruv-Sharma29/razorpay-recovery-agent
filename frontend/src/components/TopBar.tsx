@@ -9,14 +9,37 @@ import { useEffect, useState } from "react";
 
 type Theme = "light" | "dark";
 
+/**
+ * Seeds from the attribute the inline script in index.html already set
+ * before paint, so React's first render agrees with what's on screen.
+ * Falls back to stored value, then to the OS preference.
+ */
+function initialTheme(): Theme {
+  const painted = document.documentElement.dataset.theme;
+  if (painted === "light" || painted === "dark") return painted;
+
+  try {
+    const stored = localStorage.getItem("theme");
+    if (stored === "light" || stored === "dark") return stored;
+  } catch {
+    // Storage blocked (private mode) — fall through to the OS preference.
+  }
+
+  return window.matchMedia?.("(prefers-color-scheme: dark)").matches
+    ? "dark"
+    : "light";
+}
+
 function useTheme() {
-  const [theme, setTheme] = useState<Theme>(
-    () => (localStorage.getItem("theme") as Theme) ?? "light",
-  );
+  const [theme, setTheme] = useState<Theme>(initialTheme);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
-    localStorage.setItem("theme", theme);
+    try {
+      localStorage.setItem("theme", theme);
+    } catch {
+      // Preference just won't persist; the toggle still works this session.
+    }
   }, [theme]);
 
   return {
