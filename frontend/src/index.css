@@ -29,8 +29,16 @@
   /* Text */
   --text-primary: #1a2233;
   --text-secondary: #5b6478;
-  --text-muted: #8892a4;
+  /* Darkened to clear WCAG AA (4.5:1) on the lightest surface it lands
+     on (--bg-subtle), not just on white. */
+  --text-muted: #5f6880;
   --text-on-dark: #f4f6fb;
+
+  /* Foreground variants of the accent/stop signals, for text and icons
+     that sit directly on a page surface. The base tokens stay reserved
+     for fills and borders, where contrast rules differ. */
+  --accent-text: #2452e8;
+  --signal-stop-text: #b23a3a;
 
   /* Borders */
   --border-default: #e1e5f0;
@@ -46,13 +54,16 @@
 
   /* Status colors — mapped onto the signal tokens above so every
      component reads from one source of truth instead of its own shade. */
-  --status-recovered: var(--signal-ok);
+  /* Badge foregrounds are darkened relatives of the signal tokens: the
+     badge backgrounds are fixed pale tints in both themes, so the text
+     has to clear 4.5:1 against those tints specifically. */
+  --status-recovered: #14704b;
   --status-recovered-bg: #e6f7ec;
-  --status-denied: var(--signal-hold);
+  --status-denied: #8f5a09;
   --status-denied-bg: #fdf1de;
-  --status-escalated: var(--signal-hold);
+  --status-escalated: #8f5a09;
   --status-escalated-bg: #fdf1de;
-  --status-failed: var(--signal-stop);
+  --status-failed: #962f2f;
   --status-failed-bg: #fdeaea;
   --status-unknown: #6d28d9;
   --status-unknown-bg: #f1eafc;
@@ -87,8 +98,13 @@
 
   --text-primary: #eef1f8;
   --text-secondary: #a8b1c4;
-  --text-muted: #7a839a;
+  --text-muted: #8b94ab;
   --text-on-dark: #eef1f8;
+
+  /* The base accent/stop hues are tuned for light surfaces and fall to
+     ~2.8:1 on a dark card, so text using them lightens here. */
+  --accent-text: #7d9bff;
+  --signal-stop-text: #e88b8b;
 
   --border-default: #2a3149;
   --border-strong: #3a4261;
@@ -282,20 +298,6 @@ body {
   margin-bottom: 1.5rem;
 }
 
-/* Headline metric: same box as its siblings, emphasis carried by the
-   dark fill. The left border is kept but tinted to the fill so the
-   inner text stays aligned with the other tiles. */
-.stat-tile--hero {
-  background: var(--brand-navy);
-  border-color: var(--brand-navy);
-  border-left-color: var(--brand-navy);
-}
-
-.stat-tile--hero .stat-tile__label,
-.stat-tile--hero .stat-tile__value {
-  color: var(--text-on-dark);
-}
-
 /* The chart is a grid child, so it must span the full row. */
 .category-chart {
   grid-column: 1 / -1;
@@ -309,6 +311,12 @@ body {
 .category-chart .stat-tile__label {
   display: block;
   margin-bottom: 0.5rem;
+}
+
+.category-chart__loading {
+  width: 100%;
+  border-radius: var(--radius-sm);
+  background: var(--bg-subtle);
 }
 
 .stat-tile {
@@ -337,18 +345,24 @@ body {
   border-left-color: var(--status-failed);
 }
 
+/* --text-secondary, not --text-muted: muted fails WCAG AA (4.5:1) for
+   text this small. */
 .stat-tile__label {
   font-size: 0.68rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
+/* Every KPI value gets the same treatment — same color, same face,
+   tabular figures — so the row scans as one set and a zero never reads
+   as disabled. */
 .stat-tile__value {
   font-size: 1.4rem;
   font-weight: 700;
   color: var(--text-primary);
+  font-family: var(--mono-font);
   font-variant-numeric: tabular-nums;
 }
 
@@ -639,8 +653,8 @@ body {
    on purpose, so they must not look like the happy path. */
 .btn--adversarial {
   background: transparent;
-  border: 1px solid var(--signal-stop);
-  color: var(--signal-stop);
+  border: 1px solid var(--signal-stop-text);
+  color: var(--signal-stop-text);
   padding: 0.5rem 1rem;
   font-size: 0.78rem;
 }
@@ -684,7 +698,7 @@ body {
 
 .btn--ghost {
   background: transparent;
-  color: var(--brand-primary);
+  color: var(--accent-text);
   border-color: var(--border-strong);
   padding: 0.45rem 1rem;
   font-size: 0.78rem;

@@ -7,5 +7,8 @@ export default defineConfig({
     globals: true,
     environment: "jsdom",
     setupFiles: "./src/setupTests.ts",
+    // e2e/ belongs to Playwright (npm run test:contrast); it needs a real
+    // browser to resolve the CSS cascade, which jsdom cannot do.
+    include: ["src/**/*.{test,spec}.{ts,tsx}"],
   },
 });

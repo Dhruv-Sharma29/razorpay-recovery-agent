@@ -211,8 +211,8 @@ class RecoveryPolicyEngine:
             return self._escalate(
                 category=category,
                 reason=(
-                    f"Transaction amount {amount} paise is invalid or exceeds the automatic recovery "
-                    f"limit of {self._amount_limit} paise; escalating to manual review"
+                    f"Transaction amount ₹{amount / 100:,.2f} is invalid or exceeds the automatic recovery "
+                    f"limit of ₹{self._amount_limit / 100:,.2f}; escalating to manual review"
                 ),
                 rule_id="policy.guard.amount_cap",
                 escalation_reason=EscalationReason.AMOUNT_EXCEEDS_LIMIT,
