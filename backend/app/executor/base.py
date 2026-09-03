@@ -26,6 +26,7 @@ from datetime import datetime, timezone
 
 from app.executor.result import ExecutionResult, ExecutionStatus
 from app.models.payment_event import FailedTransactionEvent
+from app.persistence.store import RecoveryStateStore
 from app.policy.result import PolicyAction, PolicyDecision
 
 logger = logging.getLogger(__name__)
@@ -89,9 +90,13 @@ class RecoveryExecutor(abc.ABC):
     - Mutates the payment event.
     """
 
-    def __init__(self) -> None:
-        # Tracks idempotency keys that have been executed.
+    def __init__(self, state_store: RecoveryStateStore | None = None) -> None:
+        # Fast in-memory idempotency cache for the current process.
         self._executed_keys: dict[str, ExecutionResult] = {}
+        # Optional durable store: persists idempotency + attempt history so a
+        # retry is never re-executed even across a restart. When None the
+        # executor behaves exactly as before (in-memory only).
+        self._state_store = state_store
 
     def execute(
         self,
@@ -196,7 +201,7 @@ class RecoveryExecutor(abc.ABC):
                 timestamp=now,
             )
 
-        # --- Guard: idempotency ---
+        # --- Guard: idempotency (in-memory, this process) ---
         if idem_key in self._executed_keys:
             prior = self._executed_keys[idem_key]
             return ExecutionResult(
@@ -214,6 +219,26 @@ class RecoveryExecutor(abc.ABC):
                 ),
                 timestamp=now,
             )
+
+        # --- Guard: idempotency (durable, survives restarts) ---
+        if self._state_store is not None:
+            prior_row = self._state_store.get_execution(idem_key)
+            if prior_row is not None:
+                return ExecutionResult(
+                    status=ExecutionStatus.DUPLICATE,
+                    action_attempted=action_str,
+                    payment_id=payment_id,
+                    event_id=event_id,
+                    executed=False,
+                    execution_id=prior_row.get("execution_id"),
+                    idempotency_key=idem_key,
+                    error=None,
+                    reason=(
+                        "Duplicate execution prevented (durable ledger); action "
+                        f"was already recorded with execution_id={prior_row.get('execution_id')}"
+                    ),
+                    timestamp=now,
+                )
 
         # --- Execute via concrete implementation ---
         execution_id = str(uuid.uuid4())
@@ -244,6 +269,7 @@ class RecoveryExecutor(abc.ABC):
             )
             # Record even failed attempts to prevent re-execution
             self._executed_keys[idem_key] = result
+            self._persist(result)
             return result
 
         if success:
@@ -273,9 +299,37 @@ class RecoveryExecutor(abc.ABC):
                 timestamp=now,
             )
 
-        # Record for idempotency
+        # Record for idempotency (in-memory + durable)
         self._executed_keys[idem_key] = result
+        self._persist(result)
         return result
+
+    def _persist(self, result: ExecutionResult) -> None:
+        """Best-effort durable record of an execution attempt.
+
+        Writes the idempotency outcome and one attempt-history row. Never
+        raises — a store failure must not crash the pipeline.
+        """
+        if self._state_store is None:
+            return
+        try:
+            self._state_store.record_execution(
+                idempotency_key=result.idempotency_key,
+                payment_id=result.payment_id,
+                event_id=result.event_id,
+                action=result.action_attempted,
+                status=result.status.value,
+                execution_id=result.execution_id,
+                executed=result.executed,
+            )
+            self._state_store.record_attempt(
+                payment_id=result.payment_id,
+                event_id=result.event_id,
+                action=result.action_attempted,
+                status=result.status.value,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Durable execution record failed: %s", exc)
 
     @abc.abstractmethod
     def _do_execute(

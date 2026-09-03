@@ -133,6 +133,7 @@ def policy_denied() -> PolicyDecision:
 def reasoner() -> RecoveryReasoner:
     """RecoveryReasoner configured with test URL and model."""
     return RecoveryReasoner(
+        nim_api_key="test-key-123",
         nim_base_url=_TEST_NIM_URL,
         nim_model=_TEST_MODEL,
         timeout=5.0,
@@ -795,3 +796,25 @@ class TestIntegration:
         assert isinstance(result, ReasoningResult)
         # Critical: even with a real model, policy denial must be preserved
         assert result.policy_action_allowed is False
+
+
+def test_no_api_key_skips_network_call(payment_event, classification, policy_allowed):
+    """With no API key configured, analyze() must return a deterministic
+    fallback without making any network call."""
+    from unittest.mock import MagicMock
+
+    reasoner = RecoveryReasoner(
+        nim_api_key="",
+        nim_base_url=_TEST_NIM_URL,
+        nim_model=_TEST_MODEL,
+        timeout=5.0,
+    )
+    mock_post = MagicMock()
+    with patch.object(httpx, "post", mock_post):
+        result = reasoner.analyze(payment_event, classification, policy_allowed)
+
+    assert mock_post.call_count == 0
+    assert result.is_fallback is True
+    assert result.success is False
+    # Never invents authorization; mirrors the policy decision verbatim.
+    assert result.policy_action_allowed == policy_allowed.automatic_recovery_allowed

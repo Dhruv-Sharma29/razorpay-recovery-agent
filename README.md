@@ -2,7 +2,7 @@
 
 **Failed-payment & subscription recovery agent.**
 
-![backend tests](https://img.shields.io/badge/backend%20tests-335%20passing-brightgreen)
+![backend tests](https://img.shields.io/badge/backend%20tests-349%20passing-brightgreen)
 ![frontend tests](https://img.shields.io/badge/frontend%20tests-44%20passing-brightgreen)
 ![python](https://img.shields.io/badge/python-3.10%2B-blue)
 ![react](https://img.shields.io/badge/react-19-149eca)
@@ -149,6 +149,8 @@ Amounts are supplied in the smallest currency unit (for INR, paise). A minimal r
 ```
 
 The submitted `failure_category` is part of the validated event schema; the backend independently derives the effective category with `FailureClassifier`.
+
+Audit records persist to `DATABASE_URL` (default `sqlite:///./recovery.db`), so they survive a backend restart. `GET /api/dashboard/audit` supports pagination and filtering: `?limit=&offset=` page the log (omit `limit` to return all) and `?outcome=recovered` filters by final outcome; the response includes `count` (this page) and `total` (all matching records).
 
 ## Quick start
 

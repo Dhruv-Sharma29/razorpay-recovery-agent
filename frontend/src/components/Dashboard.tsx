@@ -91,11 +91,21 @@ const ERROR_CODE_PRESETS: Record<string, ErrorCodePreset> = {
 const MIN_ATTEMPT = 1;
 const MAX_ATTEMPT = 10;
 
+/** Stable unique id. Prefers a real UUID over a timestamp so rapid clicks
+ * can't collide on the same millisecond. */
+function genId(prefix: string): string {
+  const uuid =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : Math.random().toString(36).slice(2);
+  return `${prefix}_${uuid}`;
+}
+
 /** Golden-path default: insufficient funds payment. */
 function defaultPayload(): PaymentEventPayload {
   return {
-    event_id: `evt_${Date.now()}`,
-    razorpay_payment_id: `pay_test_${Date.now()}`,
+    event_id: genId("evt"),
+    razorpay_payment_id: genId("pay_test"),
     merchant_id: "merch_01",
     customer_id: "cust_001",
     type: "one_time",
@@ -197,8 +207,8 @@ export default function Dashboard() {
         amount: safeAmount,
         attempt_number: safeAttempt,
         // Generate fresh IDs each time
-        event_id: `evt_${Date.now()}`,
-        razorpay_payment_id: `pay_test_${Date.now()}`,
+        event_id: genId("evt"),
+        razorpay_payment_id: genId("pay_test"),
         timestamp: new Date().toISOString(),
       });
       setResult(data);

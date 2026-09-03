@@ -30,6 +30,11 @@ blob-report/
 *.db
 *.sqlite
 *.sqlite3
+*.db-journal
+*.db-wal
+*.db-shm
+
+evaluation_results/
 
 .DS_Store
 .vite/
