@@ -1,0 +1,77 @@
+#!/usr/bin/env python3
+"""Run evaluation against synthetic and held-out data (TASK-010)."""
+
+import json
+from pathlib import Path
+from unittest.mock import patch
+
+from app.evaluation.harness import Evaluator, EvaluationReport
+from app.reasoning.engine import RecoveryReasoner
+
+
+def print_report(report: EvaluationReport) -> None:
+    """Print a human-readable summary of the evaluation report."""
+    print(f"\n{'='*50}")
+    print(f"EVALUATION REPORT: {report.dataset_name}")
+    print(f"{'='*50}")
+    print(f"Total Transactions:        {report.total_transactions}")
+    print(f"Classification Accuracy:   {report.classification_accuracy:.2%}")
+    print(f"Automatic Recoveries:      {report.automatic_recovery_count}")
+    print(f"Escalations:               {report.escalation_count}")
+    print(f"Denials:                   {report.denial_count}")
+    print(f"Execution Failures:        {report.execution_failure_count}")
+    print(f"Unknown/Unsafe count:      {report.unknown_unsafe_count}")
+    print(f"False Auto-Recoveries:     {report.false_automatic_recovery_count}")
+    
+    if report.false_automatic_recovery_count > 0:
+        print("\nWARNING: False automatic recoveries detected!")
+        for rec in report.records:
+            if rec.is_false_automatic_recovery:
+                print(f"  - {rec.event_id} (Expected: {rec.expected_failure_category}, Allowed: {rec.automatic_recovery_allowed})")
+    print(f"{'='*50}\n")
+
+
+def mock_reasoning_analyze(self, event, classification, policy_decision):
+    """Mock reasoning to avoid real Ollama API calls during large evaluations."""
+    from app.reasoning.result import ReasoningResult
+    return ReasoningResult(
+        success=True,
+        recommendation="Mocked recommendation",
+        explanation="Mocked explanation for evaluation",
+        confidence=0.9,
+        model_id="qwen-mock",
+        policy_action_allowed=policy_decision.automatic_recovery_allowed if policy_decision else False,
+        is_fallback=True,
+    )
+
+
+def main():
+    root_dir = Path(__file__).parent.parent
+    synthetic_path = root_dir / "data" / "synthetic" / "failed_transactions.json"
+    held_out_path = root_dir / "data" / "held_out" / "failed_transactions.json"
+    output_dir = Path(__file__).parent / "evaluation_results"
+    output_dir.mkdir(exist_ok=True)
+
+    # Patch the reasoning engine so we don't spam Ollama/Qwen
+    with patch.object(RecoveryReasoner, "analyze", mock_reasoning_analyze):
+        evaluator = Evaluator()
+        
+        # 1. Synthetic Data
+        print("Evaluating synthetic dataset...")
+        synthetic_report = evaluator.evaluate("Synthetic", synthetic_path)
+        print_report(synthetic_report)
+        
+        with open(output_dir / "synthetic_report.json", "w") as f:
+            f.write(synthetic_report.model_dump_json(indent=2))
+            
+        # 2. Held-Out Data
+        print("Evaluating held-out dataset...")
+        held_out_report = evaluator.evaluate("Held-Out", held_out_path)
+        print_report(held_out_report)
+        
+        with open(output_dir / "held_out_report.json", "w") as f:
+            f.write(held_out_report.model_dump_json(indent=2))
+
+
+if __name__ == "__main__":
+    main()

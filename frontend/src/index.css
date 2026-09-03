@@ -1,0 +1,920 @@
+/* Reflow — Payment Recovery Console — Design System */
+
+/* --------------------------------------------------- */
+/* CSS Custom Properties                               */
+/* --------------------------------------------------- */
+
+:root {
+  /* --- Reflow design tokens --------------------------------- */
+  /* The 5-token core. Signal colors carry meaning; --accent is
+     reserved for the primary action and active states only. */
+  --ink: #12172b;
+  --paper: #f7f7f5;
+  --accent: #2452e8;
+  --signal-ok: #1c8a5e;
+  --signal-hold: #b5720c;
+  --signal-stop: #b23a3a;
+
+  /* Monospace is functional here, not decorative: it aligns digits
+     and reads as system-of-record output. IDs, amounts, timestamps. */
+  --mono-font: "SFMono-Regular", "Consolas", "Liberation Mono", monospace;
+
+  /* Surfaces */
+  --bg-page: #f4f6fb;
+  --bg-card: #ffffff;
+  --bg-card-hover: #fafbfe;
+  --bg-input: #ffffff;
+  --bg-subtle: #eef1f8;
+
+  /* Text */
+  --text-primary: #1a2233;
+  --text-secondary: #5b6478;
+  --text-muted: #8892a4;
+  --text-on-dark: #f4f6fb;
+
+  /* Borders */
+  --border-default: #e1e5f0;
+  --border-strong: #c7cee0;
+
+  /* Brand */
+  --brand-navy: #0a1a3f;
+  --brand-navy-soft: #10254f;
+  --brand-primary: var(--accent);
+  --brand-primary-hover: #1c41ba;
+  --brand-primary-soft: rgba(36, 82, 232, 0.1);
+  --brand-teal: #0ea5a5;
+
+  /* Status colors — mapped onto the signal tokens above so every
+     component reads from one source of truth instead of its own shade. */
+  --status-recovered: var(--signal-ok);
+  --status-recovered-bg: #e6f7ec;
+  --status-denied: var(--signal-hold);
+  --status-denied-bg: #fdf1de;
+  --status-escalated: var(--signal-hold);
+  --status-escalated-bg: #fdf1de;
+  --status-failed: var(--signal-stop);
+  --status-failed-bg: #fdeaea;
+  --status-unknown: #6d28d9;
+  --status-unknown-bg: #f1eafc;
+  --status-recorded: #6d28d9;
+  --status-recorded-bg: #f1eafc;
+
+  /* Radius */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 999px;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(16, 24, 64, 0.06);
+  --shadow-md: 0 6px 20px rgba(16, 24, 64, 0.08);
+  --shadow-lg: 0 12px 32px rgba(16, 24, 64, 0.12);
+
+  /* Transitions */
+  --transition-fast: 150ms ease;
+  --transition-normal: 220ms ease;
+}
+
+/* Dark theme: same variable names, different surfaces. Every component
+   reads these, so nothing else needs a dark-specific rule. Brand and
+   signal foreground colors are deliberately unchanged. */
+[data-theme="dark"] {
+  --bg-page: #0f1420;
+  --bg-card: #171d2e;
+  --bg-card-hover: #1c2338;
+  --bg-input: #171d2e;
+  --bg-subtle: #1a2036;
+
+  --text-primary: #eef1f8;
+  --text-secondary: #a8b1c4;
+  --text-muted: #7a839a;
+  --text-on-dark: #eef1f8;
+
+  --border-default: #2a3149;
+  --border-strong: #3a4261;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 6px 20px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.4);
+}
+
+/* --------------------------------------------------- */
+/* Reset & Base                                        */
+/* --------------------------------------------------- */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    sans-serif;
+  background: var(--bg-page);
+  color: var(--text-primary);
+  line-height: 1.6;
+  min-height: 100vh;
+}
+
+.app-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* --------------------------------------------------- */
+/* Top Bar                                              */
+/* --------------------------------------------------- */
+
+.topbar {
+  background: var(--brand-navy);
+  background: linear-gradient(135deg, var(--brand-navy), var(--brand-navy-soft));
+  color: var(--text-on-dark);
+  padding: 0.9rem 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-shadow: var(--shadow-md);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.topbar__brand {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.topbar__mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-sm);
+  background: var(--brand-primary);
+  color: white;
+}
+
+.topbar__name {
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.topbar__tagline {
+  font-size: 0.75rem;
+  color: rgba(244, 246, 251, 0.6);
+  margin-left: 0.75rem;
+  padding-left: 0.75rem;
+  border-left: 1px solid rgba(244, 246, 251, 0.2);
+  display: none;
+}
+
+@media (min-width: 640px) {
+  .topbar__tagline {
+    display: inline;
+  }
+}
+
+/* Sits on the navy top bar, so it reads against a dark ground in both
+   themes rather than following the page surface tokens. */
+.theme-toggle {
+  background: transparent;
+  border: 1px solid rgba(244, 246, 251, 0.28);
+  color: rgba(244, 246, 251, 0.85);
+  border-radius: var(--radius-md);
+  padding: 0.4rem 0.9rem;
+  font-size: 0.8rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.theme-toggle:hover {
+  background: rgba(244, 246, 251, 0.12);
+  color: #ffffff;
+}
+
+.theme-toggle:focus-visible {
+  outline: 2px solid rgba(244, 246, 251, 0.7);
+  outline-offset: 2px;
+}
+
+/* --------------------------------------------------- */
+/* Layout                                              */
+/* --------------------------------------------------- */
+
+.dashboard {
+  max-width: 1200px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 2rem 1.5rem 3rem;
+  flex: 1;
+}
+
+.dashboard-header {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.dashboard-header h1 {
+  font-size: 1.75rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+  margin-bottom: 0.4rem;
+}
+
+.dashboard-header p {
+  color: var(--text-secondary);
+  font-size: 0.92rem;
+}
+
+/* --------------------------------------------------- */
+/* Cards                                               */
+/* --------------------------------------------------- */
+
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: 1.5rem;
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow var(--transition-normal),
+    border-color var(--transition-normal);
+}
+
+.card:hover {
+  box-shadow: var(--shadow-md);
+  border-color: var(--border-strong);
+}
+
+.card-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-bottom: 1rem;
+}
+
+/* --------------------------------------------------- */
+/* Stats Bar                                            */
+/* --------------------------------------------------- */
+
+/* Asymmetric by design: one hero metric, then quieter supporting
+   evidence — not six tiles of equal weight. */
+.stats-bar {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 0.85rem;
+  margin-bottom: 1.5rem;
+}
+
+/* Headline metric: same box as its siblings, emphasis carried by the
+   dark fill. The left border is kept but tinted to the fill so the
+   inner text stays aligned with the other tiles. */
+.stat-tile--hero {
+  background: var(--brand-navy);
+  border-color: var(--brand-navy);
+  border-left-color: var(--brand-navy);
+}
+
+.stat-tile--hero .stat-tile__label,
+.stat-tile--hero .stat-tile__value {
+  color: var(--text-on-dark);
+}
+
+/* The chart is a grid child, so it must span the full row. */
+.category-chart {
+  grid-column: 1 / -1;
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: 1rem;
+  box-shadow: var(--shadow-sm);
+}
+
+.category-chart .stat-tile__label {
+  display: block;
+  margin-bottom: 0.5rem;
+}
+
+.stat-tile {
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  /* Neutral by default — accent is reserved for actions and active
+     states, never decoration. Only signal tiles carry color. */
+  border-left: 3px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  padding: 0.9rem 1rem;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.stat-tile--positive {
+  border-left-color: var(--status-recovered);
+}
+
+.stat-tile--warning {
+  border-left-color: var(--status-escalated);
+}
+
+.stat-tile--negative {
+  border-left-color: var(--status-failed);
+}
+
+.stat-tile__label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.stat-tile__value {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Wrap rather than squeeze six columns into a narrow viewport. */
+@media (max-width: 900px) {
+  .stats-bar {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 560px) {
+  .stats-bar {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* --------------------------------------------------- */
+/* Status Badges                                       */
+/* --------------------------------------------------- */
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.75rem;
+  border-radius: var(--radius-xl);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  transition: transform var(--transition-fast);
+  white-space: nowrap;
+}
+
+.status-badge--recovered {
+  background: var(--status-recovered-bg);
+  color: var(--status-recovered);
+  border: 1px solid rgba(21, 128, 61, 0.2);
+}
+
+.status-badge--denied {
+  background: var(--status-denied-bg);
+  color: var(--status-denied);
+  border: 1px solid rgba(180, 83, 9, 0.2);
+}
+
+.status-badge--escalated {
+  background: var(--status-escalated-bg);
+  color: var(--status-escalated);
+  border: 1px solid rgba(194, 65, 12, 0.2);
+}
+
+.status-badge--failed,
+.status-badge--execution_failed {
+  background: var(--status-failed-bg);
+  color: var(--status-failed);
+  border: 1px solid rgba(185, 28, 28, 0.2);
+}
+
+.status-badge--unknown,
+.status-badge--audit_failed,
+.status-badge--recorded {
+  background: var(--status-recorded-bg);
+  color: var(--status-recorded);
+  border: 1px solid rgba(109, 40, 217, 0.2);
+}
+
+/* --------------------------------------------------- */
+/* Pipeline Stages                                     */
+/* --------------------------------------------------- */
+
+/* Connected rail: six nodes on one line joined by a stroke, so the
+   pipeline reads as a sequence instead of six unrelated cards. */
+.pipeline-rail {
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+  overflow-x: auto;
+  padding: 1.5rem 0;
+  margin-bottom: 2rem;
+}
+
+.rail-node {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1 0 168px;
+  min-width: 168px;
+  padding: 0 0.5rem;
+  text-align: center;
+}
+
+.rail-node__marker {
+  position: relative;
+  z-index: 1;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  background: var(--paper);
+  border: 2px solid var(--border-strong);
+  color: var(--text-muted);
+  transition: border-color var(--transition-normal),
+    color var(--transition-normal), background var(--transition-normal);
+}
+
+.rail-node--active .rail-node__marker {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: #ffffff;
+}
+
+/* Drawn from this node's centre to the next node's centre, sitting
+   behind the markers. */
+.rail-connector {
+  position: absolute;
+  top: 13px;
+  left: 50%;
+  width: 100%;
+  height: 2px;
+  background: var(--border-strong);
+  z-index: 0;
+  transition: background var(--transition-normal);
+}
+
+.rail-connector--active {
+  background: var(--accent);
+}
+
+.rail-node__label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-top: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.rail-node__advisory {
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--signal-hold);
+  background: var(--status-denied-bg);
+  border: 1px solid rgba(181, 114, 12, 0.25);
+  border-radius: var(--radius-xl);
+  padding: 0.1rem 0.4rem;
+  white-space: nowrap;
+}
+
+.rail-node__detail {
+  margin-top: 0.5rem;
+  max-width: 152px;
+}
+
+.rail-node__value {
+  font-weight: 600;
+  font-size: 0.85rem;
+  /* Theme-aware: --ink is a fixed brand color and goes invisible on a
+     dark surface. */
+  color: var(--text-primary);
+  word-break: break-word;
+}
+
+.rail-node__reason {
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  margin-top: 0.15rem;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.rail-node--pending .rail-node__label {
+  color: var(--text-muted);
+}
+
+.rail-error {
+  flex: 1 0 100%;
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius-md);
+  background: var(--status-failed-bg);
+  border: 1px solid rgba(178, 58, 58, 0.25);
+  color: var(--signal-stop);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+/* --------------------------------------------------- */
+/* Form                                                */
+/* --------------------------------------------------- */
+
+.demo-form {
+  margin-bottom: 2rem;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0.9rem;
+  margin-bottom: 1.25rem;
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.form-field label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.form-field input,
+.form-field select {
+  background: var(--bg-input);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: 0.6rem 0.75rem;
+  color: var(--text-primary);
+  font-size: 0.88rem;
+  font-family: inherit;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.form-field input:focus,
+.form-field select:focus {
+  outline: none;
+  border-color: var(--brand-primary);
+  box-shadow: 0 0 0 3px var(--brand-primary-soft);
+}
+
+.form-hint {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+/* --------------------------------------------------- */
+/* Buttons                                             */
+/* --------------------------------------------------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.65rem 1.5rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  font-size: 0.85rem;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn--primary {
+  background: var(--brand-primary);
+  color: white;
+  box-shadow: 0 2px 8px rgba(36, 82, 232, 0.25);
+}
+
+.btn--primary:hover:not(:disabled) {
+  background: var(--brand-primary-hover);
+  box-shadow: 0 4px 14px rgba(36, 82, 232, 0.32);
+  transform: translateY(-1px);
+}
+
+.btn--primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Visually distinct from the primary action: these trigger a refusal
+   on purpose, so they must not look like the happy path. */
+.btn--adversarial {
+  background: transparent;
+  border: 1px solid var(--signal-stop);
+  color: var(--signal-stop);
+  padding: 0.5rem 1rem;
+  font-size: 0.78rem;
+}
+
+.btn--adversarial:hover:not(:disabled) {
+  background: var(--status-failed-bg);
+}
+
+.btn--adversarial:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.form-actions {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.adversarial {
+  margin-top: 1.25rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--border-default);
+}
+
+.adversarial__label {
+  display: block;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin-bottom: 0.6rem;
+}
+
+.adversarial__actions {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.btn--ghost {
+  background: transparent;
+  color: var(--brand-primary);
+  border-color: var(--border-strong);
+  padding: 0.45rem 1rem;
+  font-size: 0.78rem;
+}
+
+.btn--ghost:hover:not(:disabled) {
+  background: var(--bg-subtle);
+}
+
+.btn--ghost:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* --------------------------------------------------- */
+/* Outcome Banner                                      */
+/* --------------------------------------------------- */
+
+.outcome-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.25rem 1.5rem;
+  border-radius: var(--radius-lg);
+  margin-bottom: 1.5rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  box-shadow: var(--shadow-sm);
+}
+
+.outcome-banner__label {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.outcome-banner__id {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  font-family: var(--mono-font);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --------------------------------------------------- */
+/* Audit Log Table                                     */
+/* --------------------------------------------------- */
+
+.audit-log {
+  margin-top: 2rem;
+}
+
+.audit-log__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.audit-log__header .card-title {
+  margin-bottom: 0;
+}
+
+.audit-table-wrapper {
+  overflow-x: auto;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-default);
+}
+
+.audit-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.audit-table th {
+  background: var(--bg-subtle);
+  padding: 0.75rem 1rem;
+  text-align: left;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-default);
+  white-space: nowrap;
+}
+
+.audit-table td {
+  padding: 0.65rem 1rem;
+  border-bottom: 1px solid var(--border-default);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.audit-table tr:last-child td {
+  border-bottom: none;
+}
+
+.audit-table tr:hover td {
+  background: var(--bg-card-hover);
+}
+
+.mono {
+  font-family: var(--mono-font);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.78rem;
+  color: var(--text-primary);
+}
+
+/* Machine-readable values only: IDs, amounts, timestamps. Never
+   headings, labels, or prose. */
+.data-mono {
+  font-family: var(--mono-font);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --------------------------------------------------- */
+/* States                                              */
+/* --------------------------------------------------- */
+
+.empty-state,
+.loading-state,
+.error-state {
+  text-align: center;
+  padding: 3rem 1.5rem;
+}
+
+.empty-state__icon,
+.loading-state__icon,
+.error-state__icon {
+  margin-bottom: 1rem;
+  color: var(--text-muted);
+}
+
+.empty-state__icon svg,
+.loading-state__icon svg,
+.error-state__icon svg {
+  width: 40px;
+  height: 40px;
+}
+
+.error-state__icon {
+  color: var(--status-failed);
+}
+
+.empty-state__title,
+.loading-state__title,
+.error-state__title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+  color: var(--text-primary);
+}
+
+.empty-state__description,
+.loading-state__description,
+.error-state__description {
+  font-size: 0.88rem;
+  color: var(--text-secondary);
+  max-width: 400px;
+  margin: 0 auto;
+}
+
+.error-state {
+  border: 1px solid rgba(185, 28, 28, 0.2);
+  border-radius: var(--radius-lg);
+  background: var(--status-failed-bg);
+}
+
+.error-state__title {
+  color: var(--status-failed);
+}
+
+/* Loading spinner */
+.spinner {
+  display: inline-block;
+  width: 36px;
+  height: 36px;
+  border: 3px solid var(--border-default);
+  border-top-color: var(--brand-primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* --------------------------------------------------- */
+/* Footer                                              */
+/* --------------------------------------------------- */
+
+.app-footer {
+  text-align: center;
+  padding: 1.5rem;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  border-top: 1px solid var(--border-default);
+}
+
+/* --------------------------------------------------- */
+/* Responsive                                          */
+/* --------------------------------------------------- */
+
+@media (max-width: 768px) {
+  .dashboard {
+    padding: 1.25rem 1rem;
+  }
+
+  /* The rail keeps its node width and scrolls horizontally rather than
+     collapsing, so the sequence stays readable as a sequence. */
+  .pipeline-rail {
+    padding: 1rem 0;
+  }
+
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .outcome-banner {
+    flex-direction: column;
+    gap: 0.5rem;
+    text-align: center;
+  }
+
+  .audit-log__header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+}
