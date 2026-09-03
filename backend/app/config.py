@@ -10,8 +10,9 @@ class Settings(BaseSettings):
 
     razorpay_key_id: str = ""
     razorpay_key_secret: str = ""
-    ollama_base_url: str = "http://localhost:11434"
-    ollama_model: str = "qwen3.5:latest"
+    nim_api_key: str = ""
+    nim_base_url: str = "https://integrate.api.nvidia.com/v1"
+    nim_model: str = "meta/llama-3.1-8b-instruct"
     database_url: str = "sqlite:///./recovery.db"
     auto_recovery_amount_limit: int = 500000
 

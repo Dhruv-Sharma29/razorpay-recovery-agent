@@ -1,6 +1,6 @@
-"""Qwen 3.5 reasoning layer via Ollama.
+"""Reasoning layer via NVIDIA NIM.
 
-This module communicates with a locally running Ollama server to produce
+This module communicates with the NVIDIA NIM API to produce
 structured explanations of recovery decisions that have ALREADY been made
 by the deterministic policy engine.
 
@@ -14,7 +14,7 @@ The reasoning layer is an *explainer*, not a decision-maker:
 * It CANNOT increase retry limits or bypass safety caps.
 * It CANNOT execute payments, call Razorpay, or send notifications.
 
-If Ollama is unavailable, times out, or returns invalid output the
+If the NIM API is unavailable, times out, or returns invalid output the
 reasoner returns a safe deterministic fallback that preserves the
 original policy decision unchanged.
 """
@@ -35,12 +35,12 @@ from app.reasoning.result import ReasoningResult
 
 logger = logging.getLogger(__name__)
 
-# Default timeout for Ollama HTTP calls (seconds).
+# Default timeout for NIM HTTP calls (seconds).
 _DEFAULT_TIMEOUT = 30.0
 
 
 # ---------------------------------------------------------------------------
-# System prompt — instructs Qwen about its role and constraints.
+# System prompt — instructs the NIM model about its role and constraints.
 # ---------------------------------------------------------------------------
 
 _SYSTEM_PROMPT = """\
@@ -114,7 +114,7 @@ def _build_fallback(
 ) -> ReasoningResult:
     """Return a safe deterministic fallback that preserves the policy decision.
 
-    This is called whenever Ollama is unavailable, times out, or returns
+    This is called whenever the API is unavailable, times out, or returns
     output that cannot be parsed into a valid structured response.
 
     The fallback NEVER authorizes recovery — ``policy_action_allowed`` is
@@ -142,19 +142,22 @@ def _build_fallback(
     )
 
 
-def _parse_ollama_response(
+def _parse_nim_response(
     raw_body: dict[str, Any],
     policy_decision: PolicyDecision,
     model_id: str,
     classification: ClassificationResult | None = None,
 ) -> ReasoningResult:
-    """Parse the Ollama chat completion response into a ReasoningResult.
+    """Parse the NIM chat completion response into a ReasoningResult.
 
     If the model output is malformed or missing required fields, a safe
     fallback is returned.
     """
     try:
-        message = raw_body.get("message", {})
+        choices = raw_body.get("choices", [])
+        if not choices:
+            raise ValueError("No choices returned in API response")
+        message = choices[0].get("message", {})
         content = message.get("content", "")
 
         # Strip markdown code fencing if present
@@ -169,8 +172,8 @@ def _parse_ollama_response(
             cleaned = "\n".join(lines).strip()
 
         parsed = json.loads(cleaned)
-    except (json.JSONDecodeError, TypeError, AttributeError) as exc:
-        logger.warning("Ollama returned unparseable content: %s", exc)
+    except (json.JSONDecodeError, TypeError, AttributeError, ValueError) as exc:
+        logger.warning("API returned unparseable content: %s", exc)
         return _build_fallback(
             policy_decision,
             model_id,
@@ -225,9 +228,9 @@ def _parse_ollama_response(
 
 
 class RecoveryReasoner:
-    """Qwen 3.5 reasoning layer via Ollama.
+    """Reasoning layer via NVIDIA NIM.
 
-    Communicates with a locally running Ollama server to generate
+    Communicates with the NVIDIA NIM API to generate
     structured explanations of recovery decisions.
 
     The reasoner is fully isolated from the deterministic policy engine:
@@ -235,35 +238,41 @@ class RecoveryReasoner:
     authorize recovery actions.
 
     Args:
-        ollama_base_url: Base URL of the Ollama server.
-            Defaults to ``settings.ollama_base_url``.
-        ollama_model: Model identifier to use.
-            Defaults to ``settings.ollama_model``.
-        timeout: HTTP timeout in seconds for the Ollama call.
+        nim_api_key: API Key for NIM.
+            Defaults to ``settings.nim_api_key``.
+        nim_base_url: Base URL of the NIM API.
+            Defaults to ``settings.nim_base_url``.
+        nim_model: Model identifier to use.
+            Defaults to ``settings.nim_model``.
+        timeout: HTTP timeout in seconds for the API call.
     """
 
     def __init__(
         self,
-        ollama_base_url: str | None = None,
-        ollama_model: str | None = None,
+        nim_api_key: str | None = None,
+        nim_base_url: str | None = None,
+        nim_model: str | None = None,
         timeout: float = _DEFAULT_TIMEOUT,
     ) -> None:
+        self._api_key = (
+            nim_api_key if nim_api_key is not None else settings.nim_api_key
+        )
         self._base_url = (
-            ollama_base_url if ollama_base_url is not None else settings.ollama_base_url
+            nim_base_url if nim_base_url is not None else settings.nim_base_url
         )
         self._model = (
-            ollama_model if ollama_model is not None else settings.ollama_model
+            nim_model if nim_model is not None else settings.nim_model
         )
         self._timeout = timeout
 
     @property
     def base_url(self) -> str:
-        """The configured Ollama base URL."""
+        """The configured NIM base URL."""
         return self._base_url
 
     @property
     def model(self) -> str:
-        """The configured Ollama model identifier."""
+        """The configured NIM model identifier."""
         return self._model
 
     def analyze(
@@ -275,7 +284,7 @@ class RecoveryReasoner:
         """Produce a structured reasoning explanation for a recovery decision.
 
         This method:
-        1. Sends the payment context + policy decision to Ollama/Qwen.
+        1. Sends the payment context + policy decision to NIM.
         2. Parses the structured response.
         3. Returns a ``ReasoningResult`` that ALWAYS preserves the policy
            engine's ``automatic_recovery_allowed`` flag.
@@ -314,48 +323,53 @@ class RecoveryReasoner:
                 {"role": "system", "content": _SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt},
             ],
-            "stream": False,
-            # Reasoning is advisory only; disable extended chain-of-thought so
-            # the dashboard receives the bounded JSON explanation promptly.
-            "think": False,
-            "format": "json",
-            "options": {"num_predict": 128},
+            "max_tokens": 1024,
+            "temperature": 0.6,
+            "top_p": 0.95,
+            "response_format": {"type": "json_object"},
+        }
+
+        headers = {
+            "Authorization": f"Bearer {self._api_key}",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
         }
 
         try:
             response = httpx.post(
-                f"{self._base_url}/api/chat",
+                f"{self._base_url}/chat/completions",
+                headers=headers,
                 json=payload,
                 timeout=self._timeout,
             )
             response.raise_for_status()
             raw_body = response.json()
         except httpx.TimeoutException:
-            logger.warning("Ollama request timed out after %.1fs", self._timeout)
+            logger.warning("NIM request timed out after %.1fs", self._timeout)
             return _build_fallback(
                 policy_decision,
                 self._model,
-                f"Ollama request timed out after {self._timeout}s",
+                f"NIM request timed out after {self._timeout}s",
                 classification=classification,
             )
         except httpx.HTTPStatusError as exc:
-            logger.warning("Ollama returned HTTP %d", exc.response.status_code)
+            logger.warning("NIM returned HTTP %d", exc.response.status_code)
             return _build_fallback(
                 policy_decision,
                 self._model,
-                f"Ollama HTTP error: {exc.response.status_code}",
+                f"NIM HTTP error: {exc.response.status_code}",
                 classification=classification,
             )
         except httpx.ConnectError:
-            logger.warning("Could not connect to Ollama at %s", self._base_url)
+            logger.warning("Could not connect to NIM at %s", self._base_url)
             return _build_fallback(
                 policy_decision,
                 self._model,
-                f"Could not connect to Ollama at {self._base_url}",
+                f"Could not connect to NIM at {self._base_url}",
                 classification=classification,
             )
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Unexpected error calling Ollama: %s", exc)
+            logger.warning("Unexpected error calling NIM: %s", exc)
             return _build_fallback(
                 policy_decision,
                 self._model,
@@ -363,6 +377,6 @@ class RecoveryReasoner:
                 classification=classification,
             )
 
-        return _parse_ollama_response(
+        return _parse_nim_response(
             raw_body, policy_decision, self._model, classification=classification
         )
