@@ -12,19 +12,13 @@
 import { lazy, Suspense, useMemo } from "react";
 
 import type { AuditRecord } from "../types/dashboard";
+import { formatInr } from "../utils/currency";
 
 /** Deferred so recharts is only downloaded when a chart is actually shown. */
 const CategoryChart = lazy(() => import("./CategoryChart"));
 
 interface StatsBarProps {
   records: AuditRecord[];
-}
-
-function formatInr(paise: number): string {
-  return `₹${(paise / 100).toLocaleString("en-IN", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
 }
 
 export default function StatsBar({ records }: StatsBarProps) {
