@@ -24,7 +24,7 @@ def print_report(report: EvaluationReport) -> None:
     print(f"False Auto-Recoveries:     {report.false_automatic_recovery_count}")
     
     if report.false_automatic_recovery_count > 0:
-        print("\n🚨 WARNING: False automatic recoveries detected!")
+        print("\nWARNING: False automatic recoveries detected!")
         for rec in report.records:
             if rec.is_false_automatic_recovery:
                 print(f"  - {rec.event_id} (Expected: {rec.expected_failure_category}, Allowed: {rec.automatic_recovery_allowed})")

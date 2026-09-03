@@ -1,7 +1,7 @@
 /**
  * Dashboard component.
  *
- * Main PayPulse console: a demo payment form, pipeline result display,
+ * Main Reflow console: a demo payment form, pipeline result display,
  * summary stats, and a live audit trail.
  *
  * SAFETY: This component does NOT:
@@ -36,6 +36,20 @@ import TopBar from "./TopBar";
 const MIN_AMOUNT_PAISE = 100;
 /** UI-only ceiling so a stray keystroke can't submit an absurd amount. */
 const MAX_AMOUNT_PAISE = 10_000_000; // ₹1,00,000
+
+/**
+ * The form is denominated in rupees because that is what an operator
+ * thinks in. Paise remains the wire unit: every payload is converted at
+ * submit time, and the paise bounds above still backstop the request.
+ */
+const MIN_AMOUNT_RUPEES = MIN_AMOUNT_PAISE / 100; // ₹1
+const MAX_AMOUNT_RUPEES = MAX_AMOUNT_PAISE / 100; // ₹1,00,000
+const DEFAULT_AMOUNT_RUPEES = 1499;
+
+function rupeesToPaise(rupees: number): number {
+  return Math.round(rupees * 100);
+}
+
 const MIN_ATTEMPT = 1;
 const MAX_ATTEMPT = 10;
 
@@ -47,7 +61,7 @@ function defaultPayload(): PaymentEventPayload {
     merchant_id: "merch_01",
     customer_id: "cust_001",
     type: "one_time",
-    amount: 149900,
+    amount: rupeesToPaise(DEFAULT_AMOUNT_RUPEES),
     currency: "INR",
     payment_method: "upi",
     error_code: "INSUFFICIENT_FUNDS",
@@ -56,6 +70,43 @@ function defaultPayload(): PaymentEventPayload {
     attempt_number: 1,
     mandate_status: null,
     timestamp: new Date().toISOString(),
+  };
+}
+
+/**
+ * Payloads that deliberately trip a bounded stopping rule, so the demo
+ * can show the agent refusing rather than only succeeding.
+ *
+ * Thresholds are the backend's, not the UI's: the amount cap is 500000
+ * paise (₹5,000) and the global hard cap is 3 automated attempts.
+ */
+/** ₹90,000 — far above the ₹5,000 auto-recovery cap. */
+const OVER_CAP_RUPEES = 90_000;
+
+function overCapPayload(): PaymentEventPayload {
+  return {
+    ...defaultPayload(),
+    amount: rupeesToPaise(OVER_CAP_RUPEES),
+    error_code: "INSUFFICIENT_FUNDS",
+    error_description: "Payment failed due to insufficient funds",
+  };
+}
+
+function maxAttemptPayload(): PaymentEventPayload {
+  return {
+    ...defaultPayload(),
+    attempt_number: 5, // above the 3-attempt hard cap
+    error_code: "INSUFFICIENT_FUNDS",
+    error_description: "Payment failed due to insufficient funds",
+  };
+}
+
+function unknownCausePayload(): PaymentEventPayload {
+  return {
+    ...defaultPayload(),
+    error_code: "UNRECOGNIZED_ERROR_CODE",
+    error_description:
+      "Something went wrong that doesn't match any known category",
   };
 }
 
@@ -69,6 +120,8 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [payload, setPayload] = useState<PaymentEventPayload>(defaultPayload);
+  /** Held in rupees for the operator; converted to paise at submit. */
+  const [amountRupees, setAmountRupees] = useState(DEFAULT_AMOUNT_RUPEES);
 
   const [auditRecords, setAuditRecords] = useState<AuditRecord[]>([]);
   const [auditLoading, setAuditLoading] = useState(false);
@@ -93,16 +146,16 @@ export default function Dashboard() {
     fetchAuditLog();
   }, []);
 
-  async function handleProcess() {
+  async function runPipeline(event: PaymentEventPayload) {
     if (loading) return; // guard against duplicate/overlapping submits
     setLoading(true);
     setError(null);
     setResult(null);
     try {
-      const safeAmount = clamp(payload.amount, MIN_AMOUNT_PAISE, MAX_AMOUNT_PAISE);
-      const safeAttempt = clamp(payload.attempt_number, MIN_ATTEMPT, MAX_ATTEMPT);
+      const safeAmount = clamp(event.amount, MIN_AMOUNT_PAISE, MAX_AMOUNT_PAISE);
+      const safeAttempt = clamp(event.attempt_number, MIN_ATTEMPT, MAX_ATTEMPT);
       const data = await processPayment({
-        ...payload,
+        ...event,
         amount: safeAmount,
         attempt_number: safeAttempt,
         // Generate fresh IDs each time
@@ -122,14 +175,18 @@ export default function Dashboard() {
     }
   }
 
+  function handleProcess() {
+    // The form carries rupees; the wire carries paise.
+    runPipeline({ ...payload, amount: rupeesToPaise(amountRupees) });
+  }
+
   function handleAmountChange(raw: string) {
     const parsed = parseInt(raw, 10);
-    setPayload((p) => ({
-      ...p,
-      amount: Number.isNaN(parsed)
-        ? MIN_AMOUNT_PAISE
-        : clamp(parsed, MIN_AMOUNT_PAISE, MAX_AMOUNT_PAISE),
-    }));
+    setAmountRupees(
+      Number.isNaN(parsed)
+        ? MIN_AMOUNT_RUPEES
+        : clamp(parsed, MIN_AMOUNT_RUPEES, MAX_AMOUNT_RUPEES),
+    );
   }
 
   function handleAttemptChange(raw: string) {
@@ -148,7 +205,7 @@ export default function Dashboard() {
       <div className="dashboard">
         {/* Header */}
         <header className="dashboard-header">
-          <h1>PayPulse Recovery Console</h1>
+          <h1>Reflow Recovery Console</h1>
           <p>Operational view of the bounded payment recovery pipeline</p>
         </header>
 
@@ -178,19 +235,19 @@ export default function Dashboard() {
             </div>
 
             <div className="form-field">
-              <label htmlFor="amount">Amount (paise)</label>
+              <label htmlFor="amount">Amount (₹)</label>
               <input
                 id="amount"
                 type="number"
                 inputMode="numeric"
-                min={MIN_AMOUNT_PAISE}
-                max={MAX_AMOUNT_PAISE}
-                value={payload.amount}
+                min={MIN_AMOUNT_RUPEES}
+                max={MAX_AMOUNT_RUPEES}
+                value={amountRupees}
                 onChange={(e) => handleAmountChange(e.target.value)}
               />
               <span className="form-hint">
-                ₹{(MIN_AMOUNT_PAISE / 100).toFixed(2)} – ₹
-                {(MAX_AMOUNT_PAISE / 100).toLocaleString("en-IN")}
+                ₹{MIN_AMOUNT_RUPEES.toFixed(2)} – ₹
+                {MAX_AMOUNT_RUPEES.toLocaleString("en-IN")}
               </span>
             </div>
 
@@ -229,14 +286,48 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <button
-            className="btn btn--primary"
-            onClick={handleProcess}
-            disabled={loading}
-            data-testid="process-btn"
-          >
-            {loading ? "Processing…" : "Process Payment"}
-          </button>
+          <div className="form-actions">
+            <button
+              className="btn btn--primary"
+              onClick={handleProcess}
+              disabled={loading}
+              data-testid="process-btn"
+            >
+              {loading ? "Processing…" : "Process Payment"}
+            </button>
+          </div>
+
+          {/* Adversarial cases: each trips a different bounded stopping
+              rule, so the agent can be seen refusing on purpose. */}
+          <div className="adversarial">
+            <span className="adversarial__label">Try to break it</span>
+            <div className="adversarial__actions">
+              <button
+                className="btn btn--adversarial"
+                onClick={() => runPipeline(overCapPayload())}
+                disabled={loading}
+                data-testid="break-amount-btn"
+              >
+                Over amount cap (₹{OVER_CAP_RUPEES.toLocaleString("en-IN")})
+              </button>
+              <button
+                className="btn btn--adversarial"
+                onClick={() => runPipeline(maxAttemptPayload())}
+                disabled={loading}
+                data-testid="break-attempt-btn"
+              >
+                Past retry limit (attempt 5)
+              </button>
+              <button
+                className="btn btn--adversarial"
+                onClick={() => runPipeline(unknownCausePayload())}
+                disabled={loading}
+                data-testid="break-unknown-btn"
+              >
+                Unknown failure cause
+              </button>
+            </div>
+          </div>
         </section>
 
         {/* Loading State */}
@@ -253,7 +344,13 @@ export default function Dashboard() {
         {/* Error State */}
         {error && !loading && (
           <div className="error-state" data-testid="error-state">
-            <div className="error-state__icon">🚫</div>
+            <div className="error-state__icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+                <circle cx="12" cy="12" r="9" />
+                <line x1="12" y1="7.5" x2="12" y2="13" strokeLinecap="round" />
+                <line x1="12" y1="16.5" x2="12" y2="16.5" strokeLinecap="round" strokeWidth="2" />
+              </svg>
+            </div>
             <div className="error-state__title">Backend Error</div>
             <div className="error-state__description">{error}</div>
           </div>
@@ -281,7 +378,13 @@ export default function Dashboard() {
         {/* Empty State */}
         {!result && !loading && !error && (
           <div className="empty-state" data-testid="empty-state">
-            <div className="empty-state__icon">💳</div>
+            <div className="empty-state__icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+                <rect x="2.5" y="5" width="19" height="14" rx="2.5" />
+                <line x1="2.5" y1="9.5" x2="21.5" y2="9.5" />
+                <line x1="6" y1="14.5" x2="10" y2="14.5" strokeLinecap="round" />
+              </svg>
+            </div>
             <div className="empty-state__title">No payment processed yet</div>
             <div className="empty-state__description">
               Use the form above to send a payment event through the recovery
@@ -300,7 +403,7 @@ export default function Dashboard() {
 
         <footer className="app-footer">
           <p>
-            PayPulse test-mode console — Rules decide. Qwen explains. The
+            Reflow test-mode console — Rules decide. Nemotron explains. The
             executor acts. The audit log records.
           </p>
         </footer>

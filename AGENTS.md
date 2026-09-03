@@ -1,4 +1,6 @@
-# Recovery Agent
+# Reflow
+
+Failed-payment & subscription recovery agent.
 
 ## Source of Truth
 
@@ -15,7 +17,7 @@ The system contains:
 1. Ingestion
 2. Rules-first failure classification
 3. Bounded decision policy
-4. Qwen reasoning/explanation
+4. Nemotron reasoning/explanation (via NVIDIA NIM)
 5. Action executor
 6. Escalation handler
 7. Append-only audit log
@@ -25,9 +27,9 @@ The system contains:
 
 The deterministic policy engine decides the recovery action.
 
-Qwen only explains the decision.
+Nemotron only explains the decision.
 
-Qwen must NEVER:
+Nemotron must NEVER:
 - authorize a payment action
 - bypass a policy
 - increase retry count
@@ -50,7 +52,7 @@ The primary live demo is:
 insufficient funds
 → classification
 → policy decision
-→ Qwen explanation
+→ Nemotron explanation
 → bounded retry
 → Razorpay test mode
 → audit log

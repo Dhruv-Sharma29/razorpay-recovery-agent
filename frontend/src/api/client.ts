@@ -1,5 +1,5 @@
 /**
- * API client for the PayPulse recovery dashboard.
+ * API client for the Reflow recovery dashboard.
  *
  * This client only calls the backend API. It does NOT:
  * - implement policy logic

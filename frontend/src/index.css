@@ -1,10 +1,24 @@
-/* PayPulse — Payment Recovery Console — Design System */
+/* Reflow — Payment Recovery Console — Design System */
 
 /* --------------------------------------------------- */
 /* CSS Custom Properties                               */
 /* --------------------------------------------------- */
 
 :root {
+  /* --- Reflow design tokens --------------------------------- */
+  /* The 5-token core. Signal colors carry meaning; --accent is
+     reserved for the primary action and active states only. */
+  --ink: #12172b;
+  --paper: #f7f7f5;
+  --accent: #2452e8;
+  --signal-ok: #1c8a5e;
+  --signal-hold: #b5720c;
+  --signal-stop: #b23a3a;
+
+  /* Monospace is functional here, not decorative: it aligns digits
+     and reads as system-of-record output. IDs, amounts, timestamps. */
+  --mono-font: "SFMono-Regular", "Consolas", "Liberation Mono", monospace;
+
   /* Surfaces */
   --bg-page: #f4f6fb;
   --bg-card: #ffffff;
@@ -25,19 +39,20 @@
   /* Brand */
   --brand-navy: #0a1a3f;
   --brand-navy-soft: #10254f;
-  --brand-primary: #0b5ed7;
-  --brand-primary-hover: #094fb5;
-  --brand-primary-soft: rgba(11, 94, 215, 0.1);
+  --brand-primary: var(--accent);
+  --brand-primary-hover: #1c41ba;
+  --brand-primary-soft: rgba(36, 82, 232, 0.1);
   --brand-teal: #0ea5a5;
 
-  /* Status colors */
-  --status-recovered: #15803d;
+  /* Status colors — mapped onto the signal tokens above so every
+     component reads from one source of truth instead of its own shade. */
+  --status-recovered: var(--signal-ok);
   --status-recovered-bg: #e6f7ec;
-  --status-denied: #b45309;
+  --status-denied: var(--signal-hold);
   --status-denied-bg: #fdf1de;
-  --status-escalated: #c2410c;
-  --status-escalated-bg: #fdece0;
-  --status-failed: #b91c1c;
+  --status-escalated: var(--signal-hold);
+  --status-escalated-bg: #fdf1de;
+  --status-failed: var(--signal-stop);
   --status-failed-bg: #fdeaea;
   --status-unknown: #6d28d9;
   --status-unknown-bg: #f1eafc;
@@ -58,6 +73,29 @@
   /* Transitions */
   --transition-fast: 150ms ease;
   --transition-normal: 220ms ease;
+}
+
+/* Dark theme: same variable names, different surfaces. Every component
+   reads these, so nothing else needs a dark-specific rule. Brand and
+   signal foreground colors are deliberately unchanged. */
+[data-theme="dark"] {
+  --bg-page: #0f1420;
+  --bg-card: #171d2e;
+  --bg-card-hover: #1c2338;
+  --bg-input: #171d2e;
+  --bg-subtle: #1a2036;
+
+  --text-primary: #eef1f8;
+  --text-secondary: #a8b1c4;
+  --text-muted: #7a839a;
+  --text-on-dark: #eef1f8;
+
+  --border-default: #2a3149;
+  --border-strong: #3a4261;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 6px 20px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.4);
 }
 
 /* --------------------------------------------------- */
@@ -149,22 +187,28 @@ body {
   }
 }
 
-.badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  padding: 0.3rem 0.7rem;
-  border-radius: var(--radius-xl);
-  font-size: 0.7rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+/* Sits on the navy top bar, so it reads against a dark ground in both
+   themes rather than following the page surface tokens. */
+.theme-toggle {
+  background: transparent;
+  border: 1px solid rgba(244, 246, 251, 0.28);
+  color: rgba(244, 246, 251, 0.85);
+  border-radius: var(--radius-md);
+  padding: 0.4rem 0.9rem;
+  font-size: 0.8rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
 }
 
-.badge--test {
-  background: rgba(245, 158, 11, 0.16);
-  color: #fbbf24;
-  border: 1px solid rgba(251, 191, 36, 0.35);
+.theme-toggle:hover {
+  background: rgba(244, 246, 251, 0.12);
+  color: #ffffff;
+}
+
+.theme-toggle:focus-visible {
+  outline: 2px solid rgba(244, 246, 251, 0.7);
+  outline-offset: 2px;
 }
 
 /* --------------------------------------------------- */
@@ -229,17 +273,50 @@ body {
 /* Stats Bar                                            */
 /* --------------------------------------------------- */
 
+/* Asymmetric by design: one hero metric, then quieter supporting
+   evidence — not six tiles of equal weight. */
 .stats-bar {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  grid-template-columns: repeat(6, 1fr);
   gap: 0.85rem;
   margin-bottom: 1.5rem;
+}
+
+/* Headline metric: same box as its siblings, emphasis carried by the
+   dark fill. The left border is kept but tinted to the fill so the
+   inner text stays aligned with the other tiles. */
+.stat-tile--hero {
+  background: var(--brand-navy);
+  border-color: var(--brand-navy);
+  border-left-color: var(--brand-navy);
+}
+
+.stat-tile--hero .stat-tile__label,
+.stat-tile--hero .stat-tile__value {
+  color: var(--text-on-dark);
+}
+
+/* The chart is a grid child, so it must span the full row. */
+.category-chart {
+  grid-column: 1 / -1;
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: 1rem;
+  box-shadow: var(--shadow-sm);
+}
+
+.category-chart .stat-tile__label {
+  display: block;
+  margin-bottom: 0.5rem;
 }
 
 .stat-tile {
   background: var(--bg-card);
   border: 1px solid var(--border-default);
-  border-left: 3px solid var(--brand-primary);
+  /* Neutral by default — accent is reserved for actions and active
+     states, never decoration. Only signal tiles carry color. */
+  border-left: 3px solid var(--border-strong);
   border-radius: var(--radius-md);
   padding: 0.9rem 1rem;
   box-shadow: var(--shadow-sm);
@@ -273,6 +350,19 @@ body {
   font-weight: 700;
   color: var(--text-primary);
   font-variant-numeric: tabular-nums;
+}
+
+/* Wrap rather than squeeze six columns into a narrow viewport. */
+@media (max-width: 900px) {
+  .stats-bar {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 560px) {
+  .stats-bar {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 
 /* --------------------------------------------------- */
@@ -330,57 +420,130 @@ body {
 /* Pipeline Stages                                     */
 /* --------------------------------------------------- */
 
-.pipeline-stages {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 1rem;
+/* Connected rail: six nodes on one line joined by a stroke, so the
+   pipeline reads as a sequence instead of six unrelated cards. */
+.pipeline-rail {
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+  overflow-x: auto;
+  padding: 1.5rem 0;
   margin-bottom: 2rem;
 }
 
-.stage {
+.rail-node {
   position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1 0 168px;
+  min-width: 168px;
+  padding: 0 0.5rem;
+  text-align: center;
 }
 
-.stage-header {
+.rail-node__marker {
+  position: relative;
+  z-index: 1;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  margin-bottom: 0.75rem;
+  justify-content: center;
+  font-size: 0.8rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  background: var(--paper);
+  border: 2px solid var(--border-strong);
+  color: var(--text-muted);
+  transition: border-color var(--transition-normal),
+    color var(--transition-normal), background var(--transition-normal);
 }
 
-.stage-label {
+.rail-node--active .rail-node__marker {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: #ffffff;
+}
+
+/* Drawn from this node's centre to the next node's centre, sitting
+   behind the markers. */
+.rail-connector {
+  position: absolute;
+  top: 13px;
+  left: 50%;
+  width: 100%;
+  height: 2px;
+  background: var(--border-strong);
+  z-index: 0;
+  transition: background var(--transition-normal);
+}
+
+.rail-connector--active {
+  background: var(--accent);
+}
+
+.rail-node__label {
   font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-top: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.rail-node__advisory {
+  font-size: 0.6rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-muted);
+  letter-spacing: 0.05em;
+  color: var(--signal-hold);
+  background: var(--status-denied-bg);
+  border: 1px solid rgba(181, 114, 12, 0.25);
+  border-radius: var(--radius-xl);
+  padding: 0.1rem 0.4rem;
+  white-space: nowrap;
 }
 
-.stage-number {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  background: var(--brand-primary-soft);
-  color: var(--brand-primary);
-  font-size: 0.7rem;
-  font-weight: 700;
+.rail-node__detail {
+  margin-top: 0.5rem;
+  max-width: 152px;
 }
 
-.stage-value {
-  font-size: 0.95rem;
+.rail-node__value {
   font-weight: 600;
+  font-size: 0.85rem;
+  /* Theme-aware: --ink is a fixed brand color and goes invisible on a
+     dark surface. */
   color: var(--text-primary);
   word-break: break-word;
 }
 
-.stage-detail {
-  margin-top: 0.5rem;
-  font-size: 0.83rem;
+.rail-node__reason {
+  font-size: 0.7rem;
   color: var(--text-secondary);
-  line-height: 1.5;
+  margin-top: 0.15rem;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.rail-node--pending .rail-node__label {
+  color: var(--text-muted);
+}
+
+.rail-error {
+  flex: 1 0 100%;
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius-md);
+  background: var(--status-failed-bg);
+  border: 1px solid rgba(178, 58, 58, 0.25);
+  color: var(--signal-stop);
+  font-size: 0.82rem;
+  font-weight: 600;
 }
 
 /* --------------------------------------------------- */
@@ -457,12 +620,12 @@ body {
 .btn--primary {
   background: var(--brand-primary);
   color: white;
-  box-shadow: 0 2px 8px rgba(11, 94, 215, 0.25);
+  box-shadow: 0 2px 8px rgba(36, 82, 232, 0.25);
 }
 
 .btn--primary:hover:not(:disabled) {
   background: var(--brand-primary-hover);
-  box-shadow: 0 4px 14px rgba(11, 94, 215, 0.32);
+  box-shadow: 0 4px 14px rgba(36, 82, 232, 0.32);
   transform: translateY(-1px);
 }
 
@@ -470,6 +633,53 @@ body {
   opacity: 0.5;
   cursor: not-allowed;
   transform: none;
+}
+
+/* Visually distinct from the primary action: these trigger a refusal
+   on purpose, so they must not look like the happy path. */
+.btn--adversarial {
+  background: transparent;
+  border: 1px solid var(--signal-stop);
+  color: var(--signal-stop);
+  padding: 0.5rem 1rem;
+  font-size: 0.78rem;
+}
+
+.btn--adversarial:hover:not(:disabled) {
+  background: var(--status-failed-bg);
+}
+
+.btn--adversarial:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.form-actions {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.adversarial {
+  margin-top: 1.25rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--border-default);
+}
+
+.adversarial__label {
+  display: block;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin-bottom: 0.6rem;
+}
+
+.adversarial__actions {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
 }
 
 .btn--ghost {
@@ -514,7 +724,8 @@ body {
 .outcome-banner__id {
   font-size: 0.82rem;
   color: var(--text-secondary);
-  font-family: "SF Mono", "Fira Code", monospace;
+  font-family: var(--mono-font);
+  font-variant-numeric: tabular-nums;
 }
 
 /* --------------------------------------------------- */
@@ -577,9 +788,17 @@ body {
 }
 
 .mono {
-  font-family: "SF Mono", "Fira Code", monospace;
+  font-family: var(--mono-font);
+  font-variant-numeric: tabular-nums;
   font-size: 0.78rem;
   color: var(--text-primary);
+}
+
+/* Machine-readable values only: IDs, amounts, timestamps. Never
+   headings, labels, or prose. */
+.data-mono {
+  font-family: var(--mono-font);
+  font-variant-numeric: tabular-nums;
 }
 
 /* --------------------------------------------------- */
@@ -596,8 +815,19 @@ body {
 .empty-state__icon,
 .loading-state__icon,
 .error-state__icon {
-  font-size: 2.5rem;
   margin-bottom: 1rem;
+  color: var(--text-muted);
+}
+
+.empty-state__icon svg,
+.loading-state__icon svg,
+.error-state__icon svg {
+  width: 40px;
+  height: 40px;
+}
+
+.error-state__icon {
+  color: var(--status-failed);
 }
 
 .empty-state__title,
@@ -666,8 +896,10 @@ body {
     padding: 1.25rem 1rem;
   }
 
-  .pipeline-stages {
-    grid-template-columns: 1fr;
+  /* The rail keeps its node width and scrolls horizontally rather than
+     collapsing, so the sequence stays readable as a sequence. */
+  .pipeline-rail {
+    padding: 1rem 0;
   }
 
   .form-grid {
