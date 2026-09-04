@@ -17,6 +17,7 @@ class AuditOutcome(str, Enum):
     """Final recorded outcome for a recovery-agent decision."""
 
     RECOVERED = "recovered"
+    PENDING = "pending"
     DENIED = "denied"
     ESCALATED = "escalated"
     EXECUTION_FAILED = "execution_failed"
@@ -97,6 +98,79 @@ class AuditRecord(BaseModel):
     amount: int | None = Field(
         default=None,
         description="Transaction amount in paise",
+    )
+
+    # --- Risk dimensions ------------------------------------------------
+    # Carried from the payment event so revenue-at-risk can be aggregated
+    # from the audit log alone, without re-running the pipeline.
+
+    merchant_id: str | None = Field(
+        default=None, description="Merchant the failed payment belongs to"
+    )
+    customer_ref: str | None = Field(
+        default=None,
+        description=(
+            "Pseudonymous, stable reference for the customer. Lets repeat "
+            "failures be counted without storing the customer id, which is "
+            "PII and is deliberately never persisted."
+        ),
+    )
+    transaction_type: str | None = Field(
+        default=None, description="one_time or subscription"
+    )
+    mandate_status: str | None = Field(
+        default=None,
+        description="Mandate state for subscriptions: active / expired / paused",
+    )
+
+    # --- Decision chain -------------------------------------------------
+    # cause -> rule -> bound -> action -> outcome -> recovered amount.
+    # Every value below already existed on the result objects; persisting
+    # them makes each record independently auditable without replaying the
+    # pipeline.
+
+    classification_rule_id: str | None = Field(
+        default=None,
+        description="Which classifier rule matched the failure (the cause)",
+    )
+    policy_rule_id: str | None = Field(
+        default=None,
+        description="Which policy rule decided the action",
+    )
+    amount_limit: int | None = Field(
+        default=None,
+        description="Auto-recovery amount ceiling applied, in paise (the bound)",
+    )
+    max_retries: int | None = Field(
+        default=None,
+        description="Retry ceiling for this category (the bound)",
+    )
+    cooldown_seconds: int | None = Field(
+        default=None,
+        description="Cooldown the policy required before acting",
+    )
+    scheduled_for: str | None = Field(
+        default=None,
+        description="ISO timestamp a deferred retry became eligible, if scheduled",
+    )
+    payment_status: str | None = Field(
+        default=None,
+        description="Simulated gateway status: captured / failed / not_attempted",
+    )
+    amount_recovered: int | None = Field(
+        default=None,
+        description="Money actually recovered for this record, in paise",
+    )
+    escalation_trigger: str | None = Field(
+        default=None,
+        description="Why escalation fired, when it did",
+    )
+    reasoning_is_fallback: bool | None = Field(
+        default=None,
+        description=(
+            "True when the explanation came from the deterministic fallback "
+            "rather than the model"
+        ),
     )
 
 

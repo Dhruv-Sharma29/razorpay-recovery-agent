@@ -22,6 +22,7 @@ import abc
 import hashlib
 import logging
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from app.executor.result import ExecutionResult, ExecutionStatus
@@ -30,6 +31,28 @@ from app.persistence.store import RecoveryStateStore
 from app.policy.result import PolicyAction, PolicyDecision
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class ExecOutcome:
+    """What a concrete executor reports back to the base class.
+
+    Subclasses may still return a plain ``(success, error)`` tuple; the
+    base class adapts it, leaving the payment fields unset.
+    """
+
+    success: bool
+    error: str | None = None
+    payment_status: str | None = None
+    amount_recovered: int | None = None
+
+    @classmethod
+    def coerce(cls, raw: "ExecOutcome | tuple[bool, str | None]") -> "ExecOutcome":
+        if isinstance(raw, cls):
+            return raw
+        success, error = raw
+        return cls(success=success, error=error)
+
 
 # Policy actions that should NEVER trigger automated execution.
 _NON_EXECUTABLE_ACTIONS: frozenset[PolicyAction] = frozenset(
@@ -243,11 +266,14 @@ class RecoveryExecutor(abc.ABC):
         # --- Execute via concrete implementation ---
         execution_id = str(uuid.uuid4())
         try:
-            success, exec_error = self._do_execute(
-                payment_event=payment_event,
-                policy_decision=policy_decision,
-                execution_id=execution_id,
+            outcome = ExecOutcome.coerce(
+                self._do_execute(
+                    payment_event=payment_event,
+                    policy_decision=policy_decision,
+                    execution_id=execution_id,
+                )
             )
+            success, exec_error = outcome.success, outcome.error
         except Exception as exc:
             logger.warning(
                 "Execution failed for %s/%s: %s",
@@ -265,6 +291,8 @@ class RecoveryExecutor(abc.ABC):
                 idempotency_key=idem_key,
                 error=f"Execution exception: {exc}",
                 reason="The recovery action raised an unexpected error",
+                payment_status="failed",
+                amount_recovered=0,
                 timestamp=now,
             )
             # Record even failed attempts to prevent re-execution
@@ -283,6 +311,8 @@ class RecoveryExecutor(abc.ABC):
                 idempotency_key=idem_key,
                 error=None,
                 reason=f"Successfully executed {action_str} for {payment_id}",
+                payment_status=outcome.payment_status,
+                amount_recovered=outcome.amount_recovered,
                 timestamp=now,
             )
         else:
@@ -296,6 +326,8 @@ class RecoveryExecutor(abc.ABC):
                 idempotency_key=idem_key,
                 error=exec_error or "Execution returned failure",
                 reason=f"Execution of {action_str} failed for {payment_id}",
+                payment_status=outcome.payment_status or "failed",
+                amount_recovered=outcome.amount_recovered or 0,
                 timestamp=now,
             )
 
@@ -337,7 +369,7 @@ class RecoveryExecutor(abc.ABC):
         payment_event: FailedTransactionEvent,
         policy_decision: PolicyDecision,
         execution_id: str,
-    ) -> tuple[bool, str | None]:
+    ) -> "ExecOutcome | tuple[bool, str | None]":
         """Perform the concrete execution action.
 
         Subclasses implement this method.  The base class handles all
@@ -349,7 +381,8 @@ class RecoveryExecutor(abc.ABC):
             execution_id: Unique ID for this execution attempt.
 
         Returns:
-            A tuple of (success: bool, error_message: str | None).
-            Return (True, None) on success, (False, "reason") on failure.
+            An ``ExecOutcome`` carrying success, error, and the simulated
+            payment result. A plain ``(success, error)`` tuple is still
+            accepted and leaves the payment fields unset.
         """
         ...

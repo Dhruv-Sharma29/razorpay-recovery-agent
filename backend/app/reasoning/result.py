@@ -87,6 +87,32 @@ class ReasoningResult(BaseModel):
         ),
     )
 
+    # --- Operator-facing contribution ------------------------------------
+    # These are the model's actual value-add: plain-language framing an
+    # operator can act on. All are optional — a missing or invalid field
+    # degrades to None rather than failing the whole explanation, and none
+    # of them can widen what the policy authorized.
+
+    root_cause_plain: str | None = Field(
+        default=None,
+        description="Why the payment failed, in operator-friendly language",
+    )
+    why_appropriate: str | None = Field(
+        default=None,
+        description="Why the policy's chosen action fits this failure",
+    )
+    customer_message: str | None = Field(
+        default=None,
+        description=(
+            "Suggested customer-facing copy. Must not state amounts or "
+            "promise that recovery is authorized."
+        ),
+    )
+    escalation_summary: str | None = Field(
+        default=None,
+        description="Short summary for a human reviewer when escalated",
+    )
+
     error: str | None = Field(
         default=None,
         description=(

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import uuid
 from datetime import datetime, timezone
 from typing import Any
 
@@ -71,6 +72,25 @@ CREATE TABLE IF NOT EXISTS recovery_attempts (
 )
 """
 
+_CREATE_SCHEDULED_JOBS_SQL = """
+CREATE TABLE IF NOT EXISTS scheduled_jobs (
+    job_id           TEXT PRIMARY KEY,
+    payment_id       TEXT NOT NULL,
+    event_id         TEXT NOT NULL,
+    action           TEXT NOT NULL,
+    next_eligible_at TEXT NOT NULL,
+    status           TEXT NOT NULL,
+    event_json       TEXT NOT NULL,
+    created_at       TEXT NOT NULL,
+    updated_at       TEXT NOT NULL
+)
+"""
+
+_CREATE_SCHEDULED_INDEX_SQL = (
+    "CREATE INDEX IF NOT EXISTS idx_scheduled_due "
+    "ON scheduled_jobs (status, next_eligible_at)"
+)
+
 _CREATE_ATTEMPTS_INDEX_SQL = (
     "CREATE INDEX IF NOT EXISTS idx_attempts_payment "
     "ON recovery_attempts (payment_id)"
@@ -97,6 +117,8 @@ class RecoveryStateStore:
         self._connection.execute(_CREATE_LEDGER_SQL)
         self._connection.execute(_CREATE_ATTEMPTS_SQL)
         self._connection.execute(_CREATE_ATTEMPTS_INDEX_SQL)
+        self._connection.execute(_CREATE_SCHEDULED_JOBS_SQL)
+        self._connection.execute(_CREATE_SCHEDULED_INDEX_SQL)
         self._connection.commit()
 
     @property
@@ -207,6 +229,113 @@ class RecoveryStateStore:
         is the server-authoritative alternative to a client-supplied count.
         """
         return self.count_attempts(payment_id) + 1
+
+    # --- Scheduled jobs (deferred retries) ------------------------------
+
+    def schedule_job(
+        self,
+        *,
+        payment_id: str,
+        event_id: str,
+        action: str,
+        next_eligible_at: datetime,
+        event_json: str,
+        job_id: str | None = None,
+    ) -> str:
+        """Persist a deferred recovery action. Returns the job id.
+
+        Idempotent per (payment_id, event_id, action): re-scheduling the
+        same work returns the existing pending job instead of duplicating it.
+        """
+        existing = self._connection.execute(
+            "SELECT job_id FROM scheduled_jobs "
+            "WHERE payment_id = ? AND event_id = ? AND action = ? "
+            "AND status = 'pending'",
+            (payment_id, event_id, action),
+        ).fetchone()
+        if existing is not None:
+            return existing[0]
+
+        now = _now_iso()
+        new_id = job_id or str(uuid.uuid4())
+        self._connection.execute(
+            "INSERT INTO scheduled_jobs (job_id, payment_id, event_id, action, "
+            "next_eligible_at, status, event_json, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?)",
+            (
+                new_id,
+                payment_id,
+                event_id,
+                action,
+                next_eligible_at.isoformat(),
+                event_json,
+                now,
+                now,
+            ),
+        )
+        self._connection.commit()
+        return new_id
+
+    def due_jobs(self, now: datetime) -> list[dict[str, Any]]:
+        """Pending jobs whose cooldown has elapsed, oldest first."""
+        rows = self._connection.execute(
+            "SELECT job_id, payment_id, event_id, action, next_eligible_at, "
+            "status, event_json, created_at, updated_at FROM scheduled_jobs "
+            "WHERE status = 'pending' AND next_eligible_at <= ? "
+            "ORDER BY next_eligible_at ASC",
+            (now.isoformat(),),
+        ).fetchall()
+        return [self._job_row(r) for r in rows]
+
+    def mark_job(self, job_id: str, status: str) -> None:
+        """Move a job out of pending (``done`` or ``failed``)."""
+        self._connection.execute(
+            "UPDATE scheduled_jobs SET status = ?, updated_at = ? WHERE job_id = ?",
+            (status, _now_iso(), job_id),
+        )
+        self._connection.commit()
+
+    def list_jobs(self, status: str | None = None) -> list[dict[str, Any]]:
+        """All jobs, optionally filtered by status."""
+        if status is None:
+            rows = self._connection.execute(
+                "SELECT job_id, payment_id, event_id, action, next_eligible_at, "
+                "status, event_json, created_at, updated_at FROM scheduled_jobs "
+                "ORDER BY created_at ASC"
+            ).fetchall()
+        else:
+            rows = self._connection.execute(
+                "SELECT job_id, payment_id, event_id, action, next_eligible_at, "
+                "status, event_json, created_at, updated_at FROM scheduled_jobs "
+                "WHERE status = ? ORDER BY created_at ASC",
+                (status,),
+            ).fetchall()
+        return [self._job_row(r) for r in rows]
+
+    @staticmethod
+    def _job_row(row: Any) -> dict[str, Any]:
+        return {
+            "job_id": row[0],
+            "payment_id": row[1],
+            "event_id": row[2],
+            "action": row[3],
+            "next_eligible_at": row[4],
+            "status": row[5],
+            "event_json": row[6],
+            "created_at": row[7],
+            "updated_at": row[8],
+        }
+
+    def clear(self) -> None:
+        """Drop all idempotency, attempt, and scheduled-job state.
+
+        Test-mode only: this deliberately discards the guarantees that stop
+        a payment being retried twice, so it must never run in production.
+        """
+        self._connection.execute("DELETE FROM execution_ledger")
+        self._connection.execute("DELETE FROM recovery_attempts")
+        self._connection.execute("DELETE FROM scheduled_jobs")
+        self._connection.commit()
 
     def close(self) -> None:
         self._connection.close()
