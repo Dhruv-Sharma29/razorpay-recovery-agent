@@ -261,6 +261,16 @@ class TestDashboardProcess:
         assert data["final_outcome"] != "recovered"
 
 
+    def test_run_golden_path(self):
+        """10. Golden path endpoint runs and returns successfully."""
+        resp = client.post("/api/dashboard/golden-path")
+        assert resp.status_code == 200
+
+        data = resp.json()
+        assert data["automatic_recovery_allowed"] is True
+        assert data["final_outcome"] in ["pending", "recovered"]
+        assert data["failure_category"] == "insufficient_funds"
+
 # ---------------------------------------------------------------------------
 # Audit endpoint tests
 # ---------------------------------------------------------------------------

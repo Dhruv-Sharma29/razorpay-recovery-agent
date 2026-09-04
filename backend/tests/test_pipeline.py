@@ -321,3 +321,27 @@ class TestPipelineEndToEnd:
         assert result.execution is None
         assert result.final_outcome == AuditOutcome.ESCALATED
         assert "Invalid payment event" in result.error
+
+class TestBatchProcessing:
+    def test_process_batch_returns_results_in_order(self, pipeline):
+        events = [_make_event(event_id=f"evt_batch_{i}") for i in range(5)]
+        results = pipeline.process_batch(events, max_workers=2)
+        
+        assert len(results) == 5
+        for i, result in enumerate(results):
+            assert result is not None
+            assert result.event_id == f"evt_batch_{i}"
+            assert result.final_outcome == AuditOutcome.RECOVERED
+
+    def test_process_batch_handles_exceptions_gracefully(self, pipeline):
+        events = [
+            _make_event(event_id="evt_batch_0"),
+            "Invalid event", # Will raise inside process() but get caught and return ESCALATED
+            _make_event(event_id="evt_batch_2")
+        ]
+        results = pipeline.process_batch(events, max_workers=2)
+        
+        assert len(results) == 3
+        assert results[0].event_id == "evt_batch_0"
+        assert results[1].final_outcome == AuditOutcome.ESCALATED
+        assert results[2].event_id == "evt_batch_2"

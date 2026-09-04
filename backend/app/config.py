@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     nim_model: str = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
     database_url: str = "sqlite:///./recovery.db"
     auto_recovery_amount_limit: int = 500000
+    executor_mode: str = "mock"  # "mock" | "razorpay_test"
     # Comma-separated list of browser origins allowed to call the API.
     # Wildcards are intentionally avoided: a specific allow-list is required
     # for credentialed CORS requests to work at all.

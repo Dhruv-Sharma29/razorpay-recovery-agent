@@ -53,13 +53,27 @@ _audit_logger = AuditLogger(settings.database_url)
 # Durable idempotency + attempt history, shared with the executor so recovery
 # state survives a backend restart.
 _state_store = RecoveryStateStore(settings.database_url)
+
+
+def _make_executor(state_store=None):
+    """Select executor based on EXECUTOR_MODE.
+
+    Defaults to MockExecutor for offline / demo use.  RazorpayTestExecutor
+    is only loaded when explicitly requested via EXECUTOR_MODE=razorpay_test.
+    """
+    if settings.executor_mode == "razorpay_test":
+        from app.razorpay.executor import RazorpayTestExecutor
+        return RazorpayTestExecutor(state_store=state_store)
+    return MockExecutor(state_store=state_store)
+
+
 # Request pipeline: carries the state store, so an action with a policy
 # cooldown is persisted as a scheduled job and reported pending.
 _pipeline = RecoveryPipeline(
     classifier=FailureClassifier(),
     policy_engine=RecoveryPolicyEngine(),
     reasoner=RecoveryReasoner(),
-    executor=MockExecutor(state_store=_state_store),
+    executor=_make_executor(state_store=_state_store),
     escalation_handler=EscalationHandler(),
     audit_logger=_audit_logger,
     state_store=_state_store,
@@ -74,7 +88,7 @@ _fast_pipeline = RecoveryPipeline(
     classifier=FailureClassifier(),
     policy_engine=RecoveryPolicyEngine(),
     reasoner=RecoveryReasoner(nim_api_key=""),
-    executor=MockExecutor(state_store=_state_store),
+    executor=_make_executor(state_store=_state_store),
     escalation_handler=EscalationHandler(),
     audit_logger=_audit_logger,
     state_store=_state_store,
@@ -86,7 +100,7 @@ _worker_pipeline = RecoveryPipeline(
     classifier=FailureClassifier(),
     policy_engine=RecoveryPolicyEngine(),
     reasoner=RecoveryReasoner(),
-    executor=MockExecutor(state_store=_state_store),
+    executor=_make_executor(state_store=_state_store),
     escalation_handler=EscalationHandler(),
     audit_logger=_audit_logger,
 )
@@ -154,6 +168,14 @@ class DashboardResponse(BaseModel):
     )
     escalation_summary: str | None = Field(
         default=None, description="Summary for a human reviewer"
+    )
+    reasoning_fallback_reason: str | None = Field(
+        default=None,
+        description="Categorized reason the reasoning layer fell back (presentation-only)",
+    )
+    reasoning_from_cache: bool | None = Field(
+        default=None,
+        description="True if the reasoning explanation was served from cache",
     )
 
     # Execution
@@ -281,6 +303,9 @@ def _pipeline_to_response(result: PipelineResult, event: FailedTransactionEvent 
         reasoning_model=(
             result.reasoning.model_id if result.reasoning is not None else None
         ),
+        reasoning_from_cache=(
+            result.reasoning.from_cache if result.reasoning is not None else None
+        ),
         root_cause_plain=(
             result.reasoning.root_cause_plain
             if result.reasoning is not None
@@ -299,6 +324,11 @@ def _pipeline_to_response(result: PipelineResult, event: FailedTransactionEvent 
         escalation_summary=(
             result.reasoning.escalation_summary
             if result.reasoning is not None
+            else None
+        ),
+        reasoning_fallback_reason=(
+            result.reasoning.fallback_reason.value
+            if result.reasoning is not None and result.reasoning.fallback_reason is not None
             else None
         ),
         # Execution
@@ -469,6 +499,7 @@ def run_batch(
     reasoning_model_generated = 0
     reasoning_fallback = 0
     reasoning_customer_messages = 0
+    reasoning_from_cache = 0
     # Computed, never assumed: the reasoner copies policy_action_allowed
     # verbatim, so this must stay 0. A non-zero value would mean the safety
     # boundary had been breached, and is worth surfacing rather than hiding.
@@ -478,11 +509,19 @@ def run_batch(
     funnel = {"raw": 0, "needed_signal": 0, "contacted": 0, "confirmed_recovered": 0}
     by_category: dict[str, dict[str, Any]] = {}
 
-    for event in events:
-        try:
-            result = pipeline.process(event)
-        except Exception as exc:  # noqa: BLE001
-            logger.error("Batch: pipeline failed for %s: %s", event.event_id, exc)
+    # Recovery actions breakdown — executor-level, distinct from the funnel.
+    ra_retries_attempted = 0
+    ra_payments_recovered = 0
+    ra_payments_pending = 0
+    ra_payments_escalated = 0
+    ra_execution_failed = 0
+
+    # Process events in parallel via the pipeline's thread pool
+    results = pipeline.process_batch(events, max_workers=5)
+
+    for event, result in zip(events, results):
+        if result is None:
+            # Exception was logged by process_batch
             continue
 
         attempted_amount += event.amount or 0
@@ -496,6 +535,8 @@ def run_batch(
                 reasoning_fallback += 1
             else:
                 reasoning_model_generated += 1
+                if result.reasoning.from_cache:
+                    reasoning_from_cache += 1
             if result.reasoning.customer_message:
                 reasoning_customer_messages += 1
             if (
@@ -512,6 +553,18 @@ def run_batch(
             else 0
         )
         recovered_amount += got
+
+        # Recovery actions counters — derived from outcome + execution.
+        if execution is not None and execution.executed:
+            ra_retries_attempted += 1
+        if outcome == "recovered":
+            ra_payments_recovered += 1
+        elif outcome == "pending":
+            ra_payments_pending += 1
+        elif outcome == "escalated":
+            ra_payments_escalated += 1
+        elif outcome == "execution_failed":
+            ra_execution_failed += 1
 
         category = (
             result.classification.category.value
@@ -567,6 +620,11 @@ def run_batch(
             outcomes["pending"] = max(
                 0, outcomes.get("pending", 0) - report.recovered
             )
+            # Reconcile recovery_actions with deferred retries that completed.
+            ra_retries_attempted += report.recovered + report.failed
+            ra_payments_recovered += report.recovered
+            ra_payments_pending = max(0, ra_payments_pending - report.recovered)
+            ra_execution_failed += report.failed
 
     for bucket in by_category.values():
         if bucket["attempted_amount"] > 0:
@@ -596,9 +654,17 @@ def run_batch(
             "consultations": reasoning_model_generated + reasoning_fallback,
             "model_generated": reasoning_model_generated,
             "fallback": reasoning_fallback,
+            "from_cache": reasoning_from_cache,
             "customer_messages": reasoning_customer_messages,
             "overrode_policy": reasoning_overrode_policy,
             "model": settings.nim_model,
+        },
+        "recovery_actions": {
+            "retries_attempted": ra_retries_attempted,
+            "payments_recovered": ra_payments_recovered,
+            "payments_pending": ra_payments_pending,
+            "payments_escalated": ra_payments_escalated,
+            "execution_failed": ra_execution_failed,
         },
         "scheduler": scheduler_summary,
         "simulated": True,
@@ -766,3 +832,39 @@ def get_audit_log(
         ) from exc
 
     return AuditLogResponse(records=records, count=len(records), total=total)
+
+
+@router.post("/golden-path")
+def run_golden_path() -> DashboardResponse:
+    """Run a fixed synthetic event through the full pipeline.
+    
+    This exercises classification -> policy -> reasoner -> executor -> audit log
+    with a guaranteed "insufficient funds" failure and an amount below the 
+    auto-recovery cap, so the policy engine will allow execution.
+    """
+    event = FailedTransactionEvent(
+        event_id=str(uuid.uuid4()),
+        razorpay_payment_id=f"pay_golden_{uuid.uuid4().hex[:8]}",
+        merchant_id="merchant_demo",
+        customer_id="cust_demo",
+        type="one_time",
+        amount=settings.auto_recovery_amount_limit - 100,  # Below cap
+        currency="INR",
+        payment_method="upi",
+        error_code="BAD_REQUEST_ERROR",
+        error_description="Your payment could not be completed due to insufficient balance. Please ensure you have sufficient funds and try again.",
+        failure_category="insufficient_funds",
+        attempt_number=1,
+        timestamp=datetime.now(timezone.utc).isoformat(),
+    )
+    
+    try:
+        # We always want the reasoner to run for the golden path to show the full output.
+        result = _pipeline.process(event)
+    except Exception as exc:
+        logger.error("Golden path failed: %s", exc)
+        raise HTTPException(
+            status_code=500, detail=f"Golden path error: {exc}"
+        ) from exc
+        
+    return _pipeline_to_response(result, event)

@@ -211,6 +211,32 @@ class RecoveryPipeline:
             timestamp=now,
         )
 
+    def process_batch(
+        self, events: list[FailedTransactionEvent], max_workers: int = 5
+    ) -> list[PipelineResult | None]:
+        """Process a batch of events with bounded concurrency.
+        
+        Uses a thread pool to parallelize I/O bound operations (like reasoning calls)
+        across multiple events, while retaining deterministic order.
+        """
+        import concurrent.futures
+        
+        results: list[PipelineResult | None] = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Map events to process() in parallel while preserving order
+            futures = [executor.submit(self.process, event) for event in events]
+            for future in futures:
+                try:
+                    results.append(future.result())
+                except Exception as exc:
+                    logger.error("Pipeline: batch item failed: %s", exc)
+                    # We could append a FAILED PipelineResult, but process() catches most
+                    # things. If something escapes process(), we append None so caller 
+                    # can filter it out, just like the old loop's `continue`.
+                    results.append(None)
+                    
+        return results
+
     def _schedule(
         self,
         payment_event: FailedTransactionEvent,

@@ -15,6 +15,7 @@ import {
   processPayment,
   resetState,
   runBatch,
+  runGoldenPath,
 } from "./api/client";
 import Sidebar, { type ViewKey } from "./layout/Sidebar";
 import TopBar from "./layout/TopBar";
@@ -38,6 +39,13 @@ import Overview from "./views/Overview";
  * global hard cap is 3 automated attempts.
  */
 export const SAMPLE_CASES = [
+  {
+    key: "golden-path",
+    label: "Run golden path",
+    tone: "primary" as const,
+    isGoldenPath: true,
+    build: () => basePayload(), // Unused, but keeps type signature
+  },
   {
     key: "recoverable",
     label: "Recoverable failure",
@@ -231,6 +239,28 @@ export default function App() {
     }
   }
 
+  async function handleGoldenPath() {
+    if (sampleLoading) return;
+    setSampleLoading(true);
+    setSampleError(null);
+    try {
+      const data = await runGoldenPath();
+      setSample(data);
+      if (data.reasoning_is_fallback !== null &&
+          data.reasoning_is_fallback !== undefined) {
+        setLastWasFallback(data.reasoning_is_fallback);
+      }
+      refreshAudit();
+      refreshRisk();
+    } catch (err) {
+      setSampleError(
+        err instanceof Error ? err.message : "Failed to run golden path",
+      );
+    } finally {
+      setSampleLoading(false);
+    }
+  }
+
   return (
     <div className="app-shell">
       <Sidebar active={view} onNavigate={setView} />
@@ -271,6 +301,7 @@ export default function App() {
               error={sampleError}
               cases={SAMPLE_CASES}
               onRunSample={handleSample}
+              onRunGoldenPath={handleGoldenPath}
             />
           )}
         </main>

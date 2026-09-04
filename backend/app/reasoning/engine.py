@@ -31,7 +31,8 @@ from app.classifier.result import ClassificationResult
 from app.config import settings
 from app.models.payment_event import FailedTransactionEvent
 from app.policy.result import PolicyDecision
-from app.reasoning.result import ReasoningResult
+from app.reasoning.cache import ExplanationCache
+from app.reasoning.result import FallbackReason, ReasoningResult
 
 logger = logging.getLogger(__name__)
 
@@ -167,6 +168,7 @@ def _build_fallback(
     model_id: str,
     error_msg: str,
     classification: ClassificationResult | None = None,
+    fallback_reason: FallbackReason | None = None,
 ) -> ReasoningResult:
     """Return a safe deterministic fallback that preserves the policy decision.
 
@@ -210,6 +212,7 @@ def _build_fallback(
             else None
         ),
         error=error_msg,
+        fallback_reason=fallback_reason,
     )
 
 
@@ -242,6 +245,15 @@ def _parse_nim_response(
                 lines = lines[:-1]
             cleaned = "\n".join(lines).strip()
 
+        # Defense in depth: guard against authorization hallucinations
+        lower_cleaned = cleaned.lower()
+        if any(tok in lower_cleaned for tok in ("authorize", "approve ₹", "approved")):
+            logger.warning("NIM output contained authorization tokens; stripping them")
+            cleaned = cleaned.replace("authorize", "[REDACTED]")
+            cleaned = cleaned.replace("Authorize", "[REDACTED]")
+            cleaned = cleaned.replace("approved", "[REDACTED]")
+            cleaned = cleaned.replace("Approved", "[REDACTED]")
+
         parsed = json.loads(cleaned)
     except (json.JSONDecodeError, TypeError, AttributeError, ValueError) as exc:
         logger.warning("API returned unparseable content: %s", exc)
@@ -250,6 +262,7 @@ def _parse_nim_response(
             model_id,
             f"Malformed model output: {exc}",
             classification=classification,
+            fallback_reason=FallbackReason.INVALID_JSON_RESPONSE,
         )
 
     # The response must be a JSON object; a list/scalar is not a valid reply.
@@ -259,6 +272,7 @@ def _parse_nim_response(
             model_id,
             f"Model output was not a JSON object (got {type(parsed).__name__})",
             classification=classification,
+            fallback_reason=FallbackReason.INVALID_MODEL_RESPONSE,
         )
 
     # Validate required fields
@@ -272,6 +286,7 @@ def _parse_nim_response(
             model_id,
             "Model output missing 'recommendation' field",
             classification=classification,
+            fallback_reason=FallbackReason.INVALID_MODEL_RESPONSE,
         )
     if not isinstance(explanation, str) or not explanation.strip():
         return _build_fallback(
@@ -279,6 +294,7 @@ def _parse_nim_response(
             model_id,
             "Model output missing 'explanation' field",
             classification=classification,
+            fallback_reason=FallbackReason.INVALID_MODEL_RESPONSE,
         )
 
     try:
@@ -291,6 +307,7 @@ def _parse_nim_response(
             model_id,
             f"Model output has invalid 'confidence' value: {confidence!r}",
             classification=classification,
+            fallback_reason=FallbackReason.INVALID_MODEL_RESPONSE,
         )
 
     # SAFETY: The reasoning layer MUST NOT upgrade a policy denial to allowed.
@@ -348,6 +365,14 @@ class RecoveryReasoner:
             nim_model if nim_model is not None else settings.nim_model
         )
         self._timeout = timeout
+        self._client = httpx.Client(
+            timeout=httpx.Timeout(connect=5.0, read=timeout, write=5.0, pool=5.0),
+        )
+        self.cache = ExplanationCache(maxsize=256)
+
+    def close(self) -> None:
+        """Shutdown the HTTP client cleanly."""
+        self._client.close()
 
     @property
     def base_url(self) -> str:
@@ -395,7 +420,13 @@ class RecoveryReasoner:
                 policy_action_allowed=False,
                 is_fallback=True,
                 error="policy_decision is None",
+                fallback_reason=FallbackReason.POLICY_DECISION_MISSING,
             )
+
+        # Check cache before doing any network/prompt work
+        cached_result = self.cache.get(payment_event, classification, policy_decision)
+        if cached_result is not None:
+            return cached_result
 
         # No API key configured: skip the network call entirely and return the
         # deterministic fallback immediately (avoids a guaranteed-401 round trip
@@ -407,6 +438,7 @@ class RecoveryReasoner:
                 self._model,
                 "NIM_API_KEY not configured; skipped NIM call",
                 classification=classification,
+                fallback_reason=FallbackReason.API_KEY_UNAVAILABLE,
             )
 
         user_prompt = _build_user_prompt(
@@ -419,7 +451,7 @@ class RecoveryReasoner:
                 {"role": "system", "content": _SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt},
             ],
-            "max_tokens": 1024,
+            "max_tokens": 256,
             "temperature": 0.6,
             "top_p": 0.95,
             "response_format": {"type": "json_object"},
@@ -432,11 +464,10 @@ class RecoveryReasoner:
         }
 
         try:
-            response = httpx.post(
+            response = self._client.post(
                 f"{self._base_url}/chat/completions",
                 headers=headers,
                 json=payload,
-                timeout=self._timeout,
             )
             response.raise_for_status()
             raw_body = response.json()
@@ -447,6 +478,7 @@ class RecoveryReasoner:
                 self._model,
                 f"NIM request timed out after {self._timeout}s",
                 classification=classification,
+                fallback_reason=FallbackReason.NIM_TIMEOUT,
             )
         except httpx.HTTPStatusError as exc:
             logger.warning("NIM returned HTTP %d", exc.response.status_code)
@@ -455,6 +487,7 @@ class RecoveryReasoner:
                 self._model,
                 f"NIM HTTP error: {exc.response.status_code}",
                 classification=classification,
+                fallback_reason=FallbackReason.MODEL_UNAVAILABLE,
             )
         except httpx.ConnectError:
             logger.warning("Could not connect to NIM at %s", self._base_url)
@@ -463,6 +496,7 @@ class RecoveryReasoner:
                 self._model,
                 f"Could not connect to NIM at {self._base_url}",
                 classification=classification,
+                fallback_reason=FallbackReason.NETWORK_FAILURE,
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("Unexpected error calling NIM: %s", exc)
@@ -471,8 +505,14 @@ class RecoveryReasoner:
                 self._model,
                 f"Unexpected error: {exc}",
                 classification=classification,
+                fallback_reason=FallbackReason.NETWORK_FAILURE,
             )
 
-        return _parse_nim_response(
+        result = _parse_nim_response(
             raw_body, policy_decision, self._model, classification=classification
         )
+        
+        # Cache successful results (the cache.put method itself skips failures)
+        self.cache.put(payment_event, classification, policy_decision, result)
+        
+        return result

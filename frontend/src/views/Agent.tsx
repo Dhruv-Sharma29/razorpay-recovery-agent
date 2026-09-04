@@ -16,6 +16,7 @@ interface SampleCase {
   key: string;
   label: string;
   tone: "primary" | "adversarial";
+  isGoldenPath?: boolean;
   build: () => PaymentEventPayload;
 }
 
@@ -25,6 +26,7 @@ interface AgentProps {
   error: string | null;
   cases: SampleCase[];
   onRunSample: (payload: PaymentEventPayload) => void;
+  onRunGoldenPath: () => void;
 }
 
 export default function Agent({
@@ -33,6 +35,7 @@ export default function Agent({
   error,
   cases,
   onRunSample,
+  onRunGoldenPath,
 }: AgentProps) {
   const isFallback = result?.reasoning_is_fallback ?? null;
 
@@ -53,7 +56,7 @@ export default function Agent({
             key={c.key}
             type="button"
             className={`btn btn--${c.tone}`}
-            onClick={() => onRunSample(c.build())}
+            onClick={() => c.isGoldenPath ? onRunGoldenPath() : onRunSample(c.build())}
             disabled={loading}
             data-testid={`agent-case-${c.key}`}
           >
@@ -107,6 +110,14 @@ export default function Agent({
                     data-testid="reasoning-source-badge"
                   >
                     {isFallback ? "Deterministic fallback" : "Model generated"}
+                  </span>
+                )}
+                {isFallback && result.reasoning_fallback_reason && (
+                  <span
+                    className="source-badge source-badge--fallback"
+                    data-testid="fallback-reason-badge"
+                  >
+                    {result.reasoning_fallback_reason.replace(/_/g, " ")}
                   </span>
                 )}
               </div>

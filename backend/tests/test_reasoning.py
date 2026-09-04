@@ -198,7 +198,7 @@ class TestSuccessfulResponse:
     ):
         """NIM returns valid JSON → success=True, is_fallback=False."""
         mock_body = _mock_nim_success()
-        with patch.object(httpx, "post", return_value=_make_httpx_response(mock_body)):
+        with patch.object(httpx.Client, "post", return_value=_make_httpx_response(mock_body)):
             result = reasoner.analyze(payment_event, classification, policy_allowed)
 
         assert result.success is True
@@ -219,7 +219,7 @@ class TestSuccessfulResponse:
             explanation="Funds were insufficient.",
             confidence=0.85,
         )
-        with patch.object(httpx, "post", return_value=_make_httpx_response(mock_body)):
+        with patch.object(httpx.Client, "post", return_value=_make_httpx_response(mock_body)):
             result = reasoner.analyze(payment_event, classification, policy_allowed)
 
         assert result.recommendation == "Schedule a retry"
@@ -279,7 +279,7 @@ class TestTimeout:
     ):
         """Timeout → fallback, no crash, policy preserved."""
         with patch.object(
-            httpx,
+            httpx.Client,
             "post",
             side_effect=httpx.TimeoutException("timed out"),
         ):
@@ -301,7 +301,7 @@ class TestMalformedResponse:
     ):
         """Model returns non-JSON text → fallback."""
         body = {"choices": [{"message": {"role": "assistant", "content": "I cannot help you"}}]}
-        with patch.object(httpx, "post", return_value=_make_httpx_response(body)):
+        with patch.object(httpx.Client, "post", return_value=_make_httpx_response(body)):
             result = reasoner.analyze(payment_event, classification, policy_allowed)
 
         assert result.success is False
@@ -313,7 +313,7 @@ class TestMalformedResponse:
     ):
         """Model returns empty content → fallback."""
         body = {"choices": [{"message": {"role": "assistant", "content": ""}}]}
-        with patch.object(httpx, "post", return_value=_make_httpx_response(body)):
+        with patch.object(httpx.Client, "post", return_value=_make_httpx_response(body)):
             result = reasoner.analyze(payment_event, classification, policy_allowed)
 
         assert result.success is False
@@ -331,7 +331,7 @@ class TestMalformedResponse:
             }
         )
         body = {"choices": [{"message": {"role": "assistant", "content": f"```json\n{inner}\n```"}}]}
-        with patch.object(httpx, "post", return_value=_make_httpx_response(body)):
+        with patch.object(httpx.Client, "post", return_value=_make_httpx_response(body)):
             result = reasoner.analyze(payment_event, classification, policy_allowed)
 
         assert result.success is True
@@ -349,7 +349,7 @@ class TestInvalidStructuredOutput:
     ):
         """JSON present but 'recommendation' missing → fallback."""
         body = {"choices": [{"message": {"role": "assistant", "content": json.dumps({"explanation": "Some text", "confidence": 0.8})}}]}
-        with patch.object(httpx, "post", return_value=_make_httpx_response(body)):
+        with patch.object(httpx.Client, "post", return_value=_make_httpx_response(body)):
             result = reasoner.analyze(payment_event, classification, policy_allowed)
 
         assert result.success is False
@@ -361,7 +361,7 @@ class TestInvalidStructuredOutput:
     ):
         """JSON present but 'explanation' missing → fallback."""
         body = {"choices": [{"message": {"role": "assistant", "content": json.dumps({"recommendation": "Retry", "confidence": 0.8})}}]}
-        with patch.object(httpx, "post", return_value=_make_httpx_response(body)):
+        with patch.object(httpx.Client, "post", return_value=_make_httpx_response(body)):
             result = reasoner.analyze(payment_event, classification, policy_allowed)
 
         assert result.success is False
@@ -373,7 +373,7 @@ class TestInvalidStructuredOutput:
     ):
         """Confidence > 1.0 → fallback."""
         body = {"choices": [{"message": {"role": "assistant", "content": json.dumps({"recommendation": "Retry", "explanation": "Reason", "confidence": 1.5})}}]}
-        with patch.object(httpx, "post", return_value=_make_httpx_response(body)):
+        with patch.object(httpx.Client, "post", return_value=_make_httpx_response(body)):
             result = reasoner.analyze(payment_event, classification, policy_allowed)
 
         assert result.success is False
@@ -385,7 +385,7 @@ class TestInvalidStructuredOutput:
     ):
         """Confidence is a string → fallback."""
         body = {"choices": [{"message": {"role": "assistant", "content": json.dumps({"recommendation": "Retry", "explanation": "Reason", "confidence": "high"})}}]}
-        with patch.object(httpx, "post", return_value=_make_httpx_response(body)):
+        with patch.object(httpx.Client, "post", return_value=_make_httpx_response(body)):
             result = reasoner.analyze(payment_event, classification, policy_allowed)
 
         assert result.success is False
@@ -411,7 +411,7 @@ class TestReasoningCannotOverridePolicy:
             explanation="The customer should have funds now.",
             confidence=0.95,
         )
-        with patch.object(httpx, "post", return_value=_make_httpx_response(mock_body)):
+        with patch.object(httpx.Client, "post", return_value=_make_httpx_response(mock_body)):
             result = reasoner.analyze(payment_event, classification, policy_denied)
 
         assert result.success is True
@@ -436,7 +436,7 @@ class TestReasoningCannotChangeDecision:
         """The policy decision object is unchanged after reasoning."""
         original = policy_denied.model_copy()
         mock_body = _mock_nim_success()
-        with patch.object(httpx, "post", return_value=_make_httpx_response(mock_body)):
+        with patch.object(httpx.Client, "post", return_value=_make_httpx_response(mock_body)):
             reasoner.analyze(payment_event, classification, policy_denied)
 
         assert policy_denied == original
@@ -451,7 +451,7 @@ class TestReasoningCannotChangeDecision:
         """Policy-allowed decision is unchanged after reasoning."""
         original = policy_allowed.model_copy()
         mock_body = _mock_nim_success()
-        with patch.object(httpx, "post", return_value=_make_httpx_response(mock_body)):
+        with patch.object(httpx.Client, "post", return_value=_make_httpx_response(mock_body)):
             reasoner.analyze(payment_event, classification, policy_allowed)
 
         assert policy_allowed == original
@@ -468,7 +468,7 @@ class TestPolicyApprovedCorrect:
     ):
         """When policy allows, result.policy_action_allowed is True."""
         mock_body = _mock_nim_success()
-        with patch.object(httpx, "post", return_value=_make_httpx_response(mock_body)):
+        with patch.object(httpx.Client, "post", return_value=_make_httpx_response(mock_body)):
             result = reasoner.analyze(payment_event, classification, policy_allowed)
 
         assert result.policy_action_allowed is True
@@ -500,7 +500,7 @@ class TestPolicyDeniedStaysDenied:
         mock_body = _mock_nim_success(
             recommendation="I strongly recommend retrying this payment",
         )
-        with patch.object(httpx, "post", return_value=_make_httpx_response(mock_body)):
+        with patch.object(httpx.Client, "post", return_value=_make_httpx_response(mock_body)):
             result = reasoner.analyze(payment_event, classification, policy_denied)
 
         assert result.policy_action_allowed is False
@@ -530,7 +530,7 @@ class TestNoMutationOfPaymentEvent:
         """Payment event is not mutated during successful reasoning."""
         original = payment_event.model_copy(deep=True)
         mock_body = _mock_nim_success()
-        with patch.object(httpx, "post", return_value=_make_httpx_response(mock_body)):
+        with patch.object(httpx.Client, "post", return_value=_make_httpx_response(mock_body)):
             reasoner.analyze(payment_event, classification, policy_allowed)
 
         assert payment_event == original
@@ -597,7 +597,7 @@ class TestConfiguredModel:
             nim_model=custom_model,
         )
         mock_body = _mock_nim_success()
-        with patch.object(httpx, "post", return_value=_make_httpx_response(mock_body)):
+        with patch.object(httpx.Client, "post", return_value=_make_httpx_response(mock_body)):
             result = reasoner.analyze(payment_event, classification, policy_allowed)
 
         assert result.model_id == custom_model
@@ -616,7 +616,7 @@ class TestConfiguredModel:
         )
         mock_body = _mock_nim_success()
         with patch.object(
-            httpx, "post", return_value=_make_httpx_response(mock_body)
+            httpx.Client, "post", return_value=_make_httpx_response(mock_body)
         ) as mock_post:
             reasoner.analyze(payment_event, classification, policy_allowed)
 
@@ -650,7 +650,7 @@ class TestConfiguredUrl:
         )
         mock_body = _mock_nim_success()
         with patch.object(
-            httpx, "post", return_value=_make_httpx_response(mock_body)
+            httpx.Client, "post", return_value=_make_httpx_response(mock_body)
         ) as mock_post:
             reasoner.analyze(payment_event, classification, policy_allowed)
 
@@ -675,7 +675,7 @@ class TestNoRealServer:
     ):
         """This test verifies the pattern: mocked HTTP → no real server."""
         mock_body = _mock_nim_success()
-        with patch.object(httpx, "post", return_value=_make_httpx_response(mock_body)):
+        with patch.object(httpx.Client, "post", return_value=_make_httpx_response(mock_body)):
             result = reasoner.analyze(payment_event, classification, policy_allowed)
         assert isinstance(result, ReasoningResult)
 
@@ -691,7 +691,7 @@ class TestHttpErrors:
     ):
         """HTTP 500 → fallback."""
         resp = _make_httpx_response({"error": "internal"}, status_code=500)
-        with patch.object(httpx, "post", return_value=resp):
+        with patch.object(httpx.Client, "post", return_value=resp):
             result = reasoner.analyze(payment_event, classification, policy_allowed)
 
         assert result.success is False
@@ -703,7 +703,7 @@ class TestHttpErrors:
     ):
         """HTTP 404 → fallback."""
         resp = _make_httpx_response({"error": "not found"}, status_code=404)
-        with patch.object(httpx, "post", return_value=resp):
+        with patch.object(httpx.Client, "post", return_value=resp):
             result = reasoner.analyze(payment_event, classification, policy_allowed)
 
         assert result.success is False
@@ -815,7 +815,7 @@ def test_no_api_key_skips_network_call(payment_event, classification, policy_all
         timeout=5.0,
     )
     mock_post = MagicMock()
-    with patch.object(httpx, "post", mock_post):
+    with patch.object(httpx.Client, "post", mock_post):
         result = reasoner.analyze(payment_event, classification, policy_allowed)
 
     assert mock_post.call_count == 0
@@ -823,3 +823,187 @@ def test_no_api_key_skips_network_call(payment_event, classification, policy_all
     assert result.success is False
     # Never invents authorization; mirrors the policy decision verbatim.
     assert result.policy_action_allowed == policy_allowed.automatic_recovery_allowed
+
+
+# ---------------------------------------------------------------------------
+# Structured fallback_reason tests (Phase 2.4)
+# ---------------------------------------------------------------------------
+
+
+class TestFallbackReason:
+    """Each failure branch must set the correct FallbackReason enum."""
+
+    def test_api_key_unavailable(
+        self, payment_event, classification, policy_allowed
+    ):
+        from app.reasoning.result import FallbackReason
+
+        reasoner = RecoveryReasoner(
+            nim_api_key="",
+            nim_base_url=_TEST_NIM_URL,
+            nim_model=_TEST_MODEL,
+        )
+        result = reasoner.analyze(payment_event, classification, policy_allowed)
+        assert result.is_fallback is True
+        assert result.fallback_reason == FallbackReason.API_KEY_UNAVAILABLE
+
+    def test_policy_decision_missing(self, payment_event, classification):
+        from app.reasoning.result import FallbackReason
+
+        reasoner = RecoveryReasoner(
+            nim_api_key="test-key",
+            nim_base_url=_TEST_NIM_URL,
+            nim_model=_TEST_MODEL,
+        )
+        result = reasoner.analyze(payment_event, classification, None)
+        assert result.is_fallback is True
+        assert result.fallback_reason == FallbackReason.POLICY_DECISION_MISSING
+
+    def test_nim_timeout(
+        self, payment_event, classification, policy_allowed
+    ):
+        from app.reasoning.result import FallbackReason
+
+        reasoner = RecoveryReasoner(
+            nim_api_key="test-key",
+            nim_base_url=_TEST_NIM_URL,
+            nim_model=_TEST_MODEL,
+            timeout=0.1,
+        )
+        with patch("httpx.Client.post", side_effect=httpx.TimeoutException("timed out")):
+            result = reasoner.analyze(payment_event, classification, policy_allowed)
+        assert result.is_fallback is True
+        assert result.fallback_reason == FallbackReason.NIM_TIMEOUT
+
+    def test_network_failure(
+        self, payment_event, classification, policy_allowed
+    ):
+        from app.reasoning.result import FallbackReason
+
+        reasoner = RecoveryReasoner(
+            nim_api_key="test-key",
+            nim_base_url=_TEST_NIM_URL,
+            nim_model=_TEST_MODEL,
+        )
+        with patch("httpx.Client.post", side_effect=httpx.ConnectError("refused")):
+            result = reasoner.analyze(payment_event, classification, policy_allowed)
+        assert result.is_fallback is True
+        assert result.fallback_reason == FallbackReason.NETWORK_FAILURE
+
+    def test_model_unavailable_http_error(
+        self, payment_event, classification, policy_allowed
+    ):
+        from unittest.mock import MagicMock
+        from app.reasoning.result import FallbackReason
+
+        reasoner = RecoveryReasoner(
+            nim_api_key="test-key",
+            nim_base_url=_TEST_NIM_URL,
+            nim_model=_TEST_MODEL,
+        )
+        mock_response = MagicMock()
+        mock_response.status_code = 503
+        mock_response.headers = {}
+        mock_response.stream = MagicMock()
+        error = httpx.HTTPStatusError(
+            "Service Unavailable",
+            request=MagicMock(),
+            response=mock_response,
+        )
+        with patch("httpx.Client.post", side_effect=error):
+            result = reasoner.analyze(payment_event, classification, policy_allowed)
+        assert result.is_fallback is True
+        assert result.fallback_reason == FallbackReason.MODEL_UNAVAILABLE
+
+    def test_invalid_json_response(
+        self, payment_event, classification, policy_allowed
+    ):
+        from app.reasoning.result import FallbackReason
+
+        raw_body: dict[str, Any] = {
+            "choices": [{"message": {"content": "not json at all {"}}]
+        }
+        result = _parse_nim_response(
+            raw_body, policy_allowed, _TEST_MODEL, classification=classification
+        )
+        assert result.is_fallback is True
+        assert result.fallback_reason == FallbackReason.INVALID_JSON_RESPONSE
+
+    def test_invalid_model_response_missing_field(
+        self, payment_event, classification, policy_allowed
+    ):
+        from app.reasoning.result import FallbackReason
+
+        raw_body: dict[str, Any] = {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {"explanation": "test", "confidence": 0.5}
+                        )
+                    }
+                }
+            ]
+        }
+        result = _parse_nim_response(
+            raw_body, policy_allowed, _TEST_MODEL, classification=classification
+        )
+        assert result.is_fallback is True
+        assert result.fallback_reason == FallbackReason.INVALID_MODEL_RESPONSE
+
+    def test_successful_reasoning_has_no_fallback_reason(
+        self, payment_event, classification, policy_allowed
+    ):
+        raw_body: dict[str, Any] = {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "recommendation": "Retry after 24h",
+                                "explanation": "Insufficient funds detected.",
+                                "confidence": 0.9,
+                            }
+                        )
+                    }
+                }
+            ]
+        }
+        result = _parse_nim_response(
+            raw_body, policy_allowed, _TEST_MODEL, classification=classification
+        )
+        assert result.is_fallback is False
+        assert result.fallback_reason is None
+
+
+# ---------------------------------------------------------------------------
+# Credential leak safety test (Phase 2.4)
+# ---------------------------------------------------------------------------
+
+
+class TestCredentialSafety:
+    """Configured secrets must never appear in serialized reasoning output."""
+
+    def test_api_key_never_in_fallback_output(
+        self, payment_event, classification, policy_allowed
+    ):
+        """Force a timeout with a known API key and assert the key
+        does not appear in the serialized ReasoningResult."""
+        secret_key = "nvapi-SUPER_SECRET_TEST_KEY_12345"
+        reasoner = RecoveryReasoner(
+            nim_api_key=secret_key,
+            nim_base_url=_TEST_NIM_URL,
+            nim_model=_TEST_MODEL,
+            timeout=0.1,
+        )
+        with patch("httpx.Client.post", side_effect=httpx.TimeoutException("timed out")):
+            result = reasoner.analyze(payment_event, classification, policy_allowed)
+
+        serialized = result.model_dump_json()
+        assert secret_key not in serialized, (
+            f"API key leaked into reasoning output: {serialized}"
+        )
+        # Also check individual string fields
+        assert secret_key not in (result.error or "")
+        assert secret_key not in result.explanation
+        assert secret_key not in result.recommendation
