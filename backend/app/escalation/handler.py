@@ -8,7 +8,7 @@ It NEVER:
 - overrides a policy decision
 - executes a payment
 - calls Razorpay
-- calls Ollama / Qwen / external LLMs
+- calls NIM / Nemotron / external LLMs
 - mutates the payment event or policy decision
 """
 

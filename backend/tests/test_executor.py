@@ -1,6 +1,6 @@
 """Tests for the Recovery Executor (TASK-006).
 
-No network access, no Razorpay credentials, no Ollama required.
+No network access, no Razorpay credentials, no NIM access required.
 All tests use the MockExecutor which makes zero external calls.
 
 Test coverage:

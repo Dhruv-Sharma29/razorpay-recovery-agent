@@ -141,10 +141,39 @@ body {
   min-height: 100vh;
 }
 
+/* Sidebar + main column. The sidebar is fixed-width so content never
+   reflows when navigating between views. */
 .app-shell {
   min-height: 100vh;
   display: flex;
+  align-items: stretch;
+}
+
+.app-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
   flex-direction: column;
+}
+
+.app-content {
+  flex: 1;
+  padding: var(--space-3, 1.5rem);
+  max-width: 1280px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 /* --------------------------------------------------- */
@@ -401,6 +430,14 @@ body {
   background: var(--status-recovered-bg);
   color: var(--status-recovered);
   border: 1px solid rgba(21, 128, 61, 0.2);
+}
+
+/* Authorized but not yet run: amber, because it is neither a success nor
+   a failure yet. */
+.status-badge--pending {
+  background: var(--status-denied-bg);
+  color: var(--status-denied);
+  border: 1px solid rgba(143, 90, 9, 0.2);
 }
 
 .status-badge--denied {
@@ -968,5 +1005,1016 @@ body {
     flex-direction: column;
     align-items: flex-start;
     gap: 0.75rem;
+  }
+}
+
+/* --------------------------------------------------- */
+/* Sidebar                                             */
+/* --------------------------------------------------- */
+
+.sidebar {
+  width: 244px;
+  flex-shrink: 0;
+  background: var(--brand-navy);
+  color: var(--text-on-dark);
+  display: flex;
+  flex-direction: column;
+  padding: 1.25rem 1rem;
+  gap: 1.5rem;
+}
+
+.sidebar__brand {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.sidebar__mark {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: #fff;
+  align-items: center;
+  justify-content: center;
+}
+
+.sidebar__mark svg {
+  width: 20px;
+  height: 20px;
+}
+
+.sidebar__brand-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+
+.sidebar__name {
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.sidebar__tagline {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: rgba(244, 246, 251, 0.72);
+}
+
+.sidebar__nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  flex: 1;
+}
+
+.sidebar__link {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  padding: 0.6rem 0.7rem;
+  color: rgba(244, 246, 251, 0.82);
+  font-family: inherit;
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.sidebar__link:hover {
+  background: rgba(244, 246, 251, 0.08);
+  color: #fff;
+}
+
+.sidebar__link:focus-visible {
+  outline: 2px solid rgba(244, 246, 251, 0.75);
+  outline-offset: 2px;
+}
+
+.sidebar__link--active {
+  background: rgba(36, 82, 232, 0.28);
+  border-color: rgba(125, 155, 255, 0.55);
+  color: #fff;
+}
+
+.sidebar__link-label {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.sidebar__link-hint {
+  font-size: 0.68rem;
+  color: rgba(244, 246, 251, 0.66);
+  line-height: 1.35;
+}
+
+.sidebar__link--active .sidebar__link-hint {
+  color: rgba(244, 246, 251, 0.8);
+}
+
+.sidebar__footer {
+  font-size: 0.66rem;
+  color: rgba(244, 246, 251, 0.62);
+  line-height: 1.5;
+  border-top: 1px solid rgba(244, 246, 251, 0.16);
+  padding-top: 0.75rem;
+}
+
+/* --------------------------------------------------- */
+/* Top bar controls                                    */
+/* --------------------------------------------------- */
+
+.topbar {
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border-default);
+  color: var(--text-primary);
+  padding: 0.75rem 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  box-shadow: none;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.topbar__controls {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.ai-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border-default);
+  background: var(--bg-subtle);
+  color: var(--text-secondary);
+  font-size: 0.76rem;
+  font-weight: 600;
+}
+
+.ai-pill__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.ai-pill__dot--live {
+  background: var(--signal-ok);
+}
+
+/* The theme toggle sits on a light surface here, not the navy bar. */
+.theme-toggle {
+  border-color: var(--border-strong);
+  color: var(--text-secondary);
+}
+
+.theme-toggle:hover {
+  background: var(--bg-subtle);
+  color: var(--text-primary);
+}
+
+.theme-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* --------------------------------------------------- */
+/* Batch runner                                        */
+/* --------------------------------------------------- */
+
+.batch-runner {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.batch-runner__toast {
+  font-size: 0.74rem;
+  color: var(--text-secondary);
+  background: var(--bg-subtle);
+  border-radius: var(--radius-xl);
+  padding: 0.25rem 0.65rem;
+}
+
+.batch-runner__options {
+  position: relative;
+}
+
+.batch-runner__menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.4rem);
+  width: 268px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  padding: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  z-index: 20;
+}
+
+.batch-runner__check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--text-primary);
+}
+
+.batch-runner__note {
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.batch-runner__count input {
+  width: 74px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.6rem;
+  color: var(--text-primary);
+  font-family: var(--mono-font);
+  font-size: 0.85rem;
+}
+
+.batch-runner__count input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--brand-primary-soft);
+}
+
+.btn--tiny {
+  padding: 0.25rem 0.6rem;
+  font-size: 0.72rem;
+}
+
+/* --------------------------------------------------- */
+/* Views                                               */
+/* --------------------------------------------------- */
+
+.view {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.view__header h1 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+}
+
+.view__header p {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  margin-top: 0.25rem;
+  max-width: 64ch;
+}
+
+/* Two aligned columns: both stretch to the taller one, so their top and
+   bottom edges match. No fixed heights — the row height is whatever the
+   content needs. */
+.view__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 1.25rem;
+  align-items: stretch;
+}
+
+/* Grid children fill their cell rather than hugging their content. */
+.view__grid > .card,
+.view__grid > .view__col,
+.view__grid > .view__stack {
+  height: 100%;
+}
+
+/* Left column: the funnel absorbs any slack so the scenario card stays
+   its natural size and sits flush with the bottom of the row. */
+.view__col {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  min-height: 0;
+  /* Without this a grid item keeps min-width:auto and refuses to shrink
+     below its content, widening the track past the grid itself. */
+  min-width: 0;
+}
+
+.view__col > .funnel {
+  flex: 1 1 auto;
+}
+
+.banner {
+  border-radius: var(--radius-md);
+  padding: 0.75rem 1rem;
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.banner--error {
+  background: var(--status-failed-bg);
+  border: 1px solid rgba(150, 47, 47, 0.28);
+  color: var(--status-failed);
+}
+
+.banner--note {
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-default);
+  color: var(--text-secondary);
+}
+
+/* --------------------------------------------------- */
+/* KPI row                                             */
+/* --------------------------------------------------- */
+
+.kpi-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.85rem;
+}
+
+.stat-tile__sub {
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.stat-tile__value-of {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+/* --------------------------------------------------- */
+/* Funnel                                              */
+/* --------------------------------------------------- */
+
+/* The card stretches to match the other column, so lay its own content out
+   as a column and let the definitions sit at the bottom rather than
+   leaving one large gap under everything. */
+.funnel {
+  display: flex;
+  flex-direction: column;
+}
+
+.funnel__bars {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.funnel__row {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr) 48px;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.funnel__label {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
+.funnel__track {
+  height: 22px;
+  background: var(--bg-subtle);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.funnel__fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: var(--radius-sm);
+  transition: width var(--transition-normal);
+  min-width: 2px;
+}
+
+.funnel__value {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  text-align: right;
+}
+
+.funnel__caption {
+  margin-top: 0.9rem;
+  font-size: 0.76rem;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.funnel__definitions {
+  margin-top: auto;
+  padding-top: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  border-top: 1px solid var(--border-default);
+  padding-top: 0.75rem;
+}
+
+.funnel__definitions dt {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.funnel__definitions dd {
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+/* --------------------------------------------------- */
+/* Scenarios                                           */
+/* --------------------------------------------------- */
+
+.scenarios__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.scenarios__row {
+  display: grid;
+  grid-template-columns: 160px minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.scenarios__name {
+  font-size: 0.8rem;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.scenarios__track {
+  height: 20px;
+  background: var(--bg-subtle);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.scenarios__at-stake {
+  height: 100%;
+  background: var(--border-strong);
+  border-radius: var(--radius-sm);
+  min-width: 2px;
+}
+
+.scenarios__recovered {
+  height: 100%;
+  background: var(--signal-ok);
+  border-radius: var(--radius-sm);
+}
+
+.scenarios__amount {
+  font-size: 0.74rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.scenarios__pct {
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.scenarios__legend {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.9rem;
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+}
+
+.scenarios__key {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  display: inline-block;
+}
+
+.scenarios__key--stake {
+  background: var(--border-strong);
+}
+
+.scenarios__key--recovered {
+  background: var(--signal-ok);
+  margin-left: 0.75rem;
+}
+
+.scenarios__note,
+.scenarios__empty,
+.outcomes__empty {
+  margin-top: 0.6rem;
+  font-size: 0.74rem;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+/* --------------------------------------------------- */
+/* Outcomes                                            */
+/* --------------------------------------------------- */
+
+.outcomes__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.outcome-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.7rem;
+  border-radius: var(--radius-xl);
+  font-size: 0.76rem;
+  font-weight: 600;
+  border: 1px solid var(--border-default);
+  background: var(--bg-subtle);
+  color: var(--text-secondary);
+}
+
+.outcome-chip__count {
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.outcome-chip--positive {
+  background: var(--status-recovered-bg);
+  color: var(--status-recovered);
+  border-color: rgba(20, 112, 75, 0.25);
+}
+
+.outcome-chip--positive .outcome-chip__count {
+  color: var(--status-recovered);
+}
+
+.outcome-chip--warning {
+  background: var(--status-denied-bg);
+  color: var(--status-denied);
+  border-color: rgba(143, 90, 9, 0.25);
+}
+
+.outcome-chip--warning .outcome-chip__count {
+  color: var(--status-denied);
+}
+
+.outcome-chip--negative {
+  background: var(--status-failed-bg);
+  color: var(--status-failed);
+  border-color: rgba(150, 47, 47, 0.25);
+}
+
+.outcome-chip--negative .outcome-chip__count {
+  color: var(--status-failed);
+}
+
+/* --------------------------------------------------- */
+/* Cases                                               */
+/* --------------------------------------------------- */
+
+.cases__controls {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.cases__controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.cases__controls span {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+}
+
+.cases__controls select {
+  background: var(--bg-input);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.7rem;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.84rem;
+}
+
+.cases__controls select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--brand-primary-soft);
+}
+
+.cases__chain-row td {
+  background: var(--bg-subtle);
+}
+
+.chain {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.85rem;
+  padding: 0.35rem 0;
+}
+
+.chain__step {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 150px;
+}
+
+.chain__label {
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+}
+
+.chain__value {
+  font-size: 0.8rem;
+  color: var(--text-primary);
+  word-break: break-word;
+}
+
+.cases__pager {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
+/* --------------------------------------------------- */
+/* Agent                                               */
+/* --------------------------------------------------- */
+
+.agent__actions {
+  display: flex;
+  gap: 0.6rem;
+}
+
+.agent__summary-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.agent__ids {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
+.agent__badges {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.agent__model {
+  margin-top: 0.6rem;
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+}
+
+.source-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.3rem 0.7rem;
+  border-radius: var(--radius-xl);
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.source-badge--model {
+  background: var(--status-recovered-bg);
+  color: var(--status-recovered);
+  border: 1px solid rgba(20, 112, 75, 0.25);
+}
+
+.source-badge--fallback {
+  background: var(--status-denied-bg);
+  color: var(--status-denied);
+  border: 1px solid rgba(143, 90, 9, 0.25);
+}
+
+.agent__panels {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1rem;
+}
+
+.agent__panel-body {
+  font-size: 0.86rem;
+  color: var(--text-primary);
+  line-height: 1.6;
+}
+
+.agent__panel-empty {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.agent__recovered-value {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--signal-ok);
+}
+
+/* --------------------------------------------------- */
+/* Responsive                                          */
+/* --------------------------------------------------- */
+
+@media (max-width: 1080px) {
+  .kpi-row {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .view__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 860px) {
+  .app-shell {
+    flex-direction: column;
+  }
+
+  .sidebar {
+    width: 100%;
+    flex-direction: row;
+    align-items: center;
+    gap: 1rem;
+    overflow-x: auto;
+    padding: 0.75rem 1rem;
+  }
+
+  .sidebar__nav {
+    flex-direction: row;
+    flex: 1;
+  }
+
+  .sidebar__link-hint,
+  .sidebar__footer {
+    display: none;
+  }
+
+  .funnel__row,
+  .scenarios__row {
+    grid-template-columns: 110px minmax(0, 1fr) auto;
+  }
+
+}
+
+@media (max-width: 560px) {
+  .kpi-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* --------------------------------------------------- */
+/* Revenue at risk                                     */
+/* --------------------------------------------------- */
+
+.view__stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  min-height: 0;
+}
+
+/* The last card absorbs the leftover height so the column's visible bottom
+   edge lines up with the left panel's, instead of leaving a gap. */
+.view__stack > :last-child {
+  flex: 1 1 auto;
+}
+
+.risk__headline {
+  font-size: 0.86rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin-bottom: 0.9rem;
+}
+
+.risk__outstanding {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--signal-stop-text);
+}
+
+.risk__block + .risk__block {
+  margin-top: 0.9rem;
+  border-top: 1px solid var(--border-default);
+  padding-top: 0.75rem;
+}
+
+.risk__subhead {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  margin-bottom: 0.45rem;
+}
+
+.risk__list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.risk__list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.3rem 0.6rem;
+  align-items: baseline;
+}
+
+.risk__key {
+  font-size: 0.8rem;
+  color: var(--text-primary);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.risk__value {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  text-align: right;
+}
+
+.risk__meta {
+  grid-column: 1 / -1;
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.risk__note,
+.risk__empty {
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-top: 0.4rem;
+}
+
+.agent__actions {
+  flex-wrap: wrap;
+}
+
+.agent__actions-note {
+  font-size: 0.74rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-top: -0.6rem;
+}
+
+/* --------------------------------------------------- */
+/* Manual entry                                        */
+/* --------------------------------------------------- */
+
+.manual-entry__intro {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: 0.9rem;
+}
+
+.manual-entry__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 0.9rem;
+  margin-bottom: 1.1rem;
+}
+
+.manual-entry .form-field select:disabled,
+.manual-entry .form-field input:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* --------------------------------------------------- */
+/* AI contribution (secondary, explanatory)            */
+/* --------------------------------------------------- */
+
+.ai-card__grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1.25rem;
+}
+
+.ai-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.ai-metric__label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+}
+
+.ai-metric__value {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.2;
+}
+
+.ai-metric__note {
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.ai-card__body {
+  font-size: 0.86rem;
+  color: var(--text-primary);
+  line-height: 1.6;
+}
+
+.ai-card__body--alarm {
+  color: var(--status-failed);
+  font-weight: 600;
+}
+
+.ai-card__note {
+  margin-top: 0.6rem;
+  font-size: 0.74rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+/* Wrap to 2x2, then a single column, rather than overflowing. */
+@media (max-width: 1080px) {
+  .ai-card__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .ai-card__grid {
+    grid-template-columns: 1fr;
+  }
+
+  /* Name and amount share the first line; the bar spans the second, so it
+     stays visible instead of being squeezed to zero width. */
+  .scenarios__row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    row-gap: 0.4rem;
+  }
+
+  .scenarios__name {
+    grid-column: 1;
+  }
+
+  .scenarios__amount {
+    grid-column: 2;
+    text-align: right;
+  }
+
+  .scenarios__track {
+    grid-column: 1 / -1;
   }
 }

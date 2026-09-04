@@ -1,4 +1,4 @@
-"""Tests for the Qwen 3.5 via NIM reasoning layer (TASK-005).
+"""Tests for the Nemotron via NIM reasoning layer (TASK-005).
 
 All unit tests mock HTTP interactions — no running NIM instance required.
 An optional integration test (marked ``@pytest.mark.integration``) connects
@@ -14,7 +14,7 @@ Test coverage:
   7.  Reasoning cannot override a policy denial
   8.  Reasoning cannot change the policy decision
   9.  Policy-approved action remains represented correctly
-  10. Policy-denied action remains denied even when Qwen recommends recovery
+  10. Policy-denied action remains denied even when the model recommends recovery
   11. No mutation of the payment event
   12. Deterministic fallback behavior
   13. Configured model name is used
@@ -405,7 +405,7 @@ class TestReasoningCannotOverridePolicy:
         classification,
         policy_denied,
     ):
-        """Even if Qwen says 'retry', policy_action_allowed stays False."""
+        """Even if the model says 'retry', policy_action_allowed stays False."""
         mock_body = _mock_nim_success(
             recommendation="Retry immediately — the customer likely has funds now",
             explanation="The customer should have funds now.",
@@ -488,7 +488,7 @@ class TestPolicyApprovedCorrect:
 
 
 # ---------------------------------------------------------------------------
-# 10. Policy-denied action stays denied even when Qwen recommends
+# 10. Policy-denied action stays denied even when the model recommends
 # ---------------------------------------------------------------------------
 
 
@@ -496,7 +496,7 @@ class TestPolicyDeniedStaysDenied:
     def test_denied_on_success(
         self, reasoner, payment_event, classification, policy_denied
     ):
-        """Successful Qwen call + policy denied → still denied."""
+        """Successful model call + policy denied → still denied."""
         mock_body = _mock_nim_success(
             recommendation="I strongly recommend retrying this payment",
         )
@@ -591,7 +591,7 @@ class TestConfiguredModel:
         self, payment_event, classification, policy_allowed
     ):
         """Result.model_id matches the configured model."""
-        custom_model = "qwen3.5:custom-fine-tuned"
+        custom_model = "nvidia/nemotron-custom-tuned"
         reasoner = RecoveryReasoner(
             nim_base_url=_TEST_NIM_URL,
             nim_model=custom_model,
@@ -606,7 +606,7 @@ class TestConfiguredModel:
         self, payment_event, classification, policy_allowed
     ):
         """The HTTP payload uses the configured model name."""
-        custom_model = "qwen3.5:special"
+        custom_model = "nvidia/nemotron-special"
         # An API key is required to reach the HTTP path at all: the engine
         # short-circuits to the deterministic fallback without one.
         reasoner = RecoveryReasoner(

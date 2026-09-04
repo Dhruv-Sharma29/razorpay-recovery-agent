@@ -588,12 +588,12 @@ class TestDecisionStructure:
         assert expected_keys.issubset(set(dumped.keys()))
 
     def test_no_execution_fields(self, engine: RecoveryPolicyEngine) -> None:
-        """Decision must not contain execution/API/Qwen fields."""
+        """Decision must not contain execution/API/model fields."""
         event = _make_event(amount=100000, attempt_number=1)
         classification = _make_classification(FailureCategory.INSUFFICIENT_FUNDS)
         decision = engine.evaluate(event, classification)
         dumped = decision.model_dump()
-        forbidden = {"razorpay_response", "qwen_response", "ollama_response", "api_result"}
+        forbidden = {"razorpay_response", "nim_response", "nemotron_response", "api_result"}
         found = forbidden & set(dumped.keys())
         assert not found, f"Decision contains execution fields: {found}"
 

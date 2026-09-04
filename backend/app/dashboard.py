@@ -4,7 +4,7 @@ Read-only presentation layer for the Recovery Agent pipeline.
 This router does NOT:
 - implement or duplicate policy logic
 - call Razorpay directly
-- call Ollama / Qwen directly
+- call NIM / Nemotron directly
 - authorize recovery independently
 - override any backend policy decision
 
@@ -65,6 +65,21 @@ _pipeline = RecoveryPipeline(
     state_store=_state_store,
 )
 
+# Batch pipeline: identical to the request pipeline except its reasoner has
+# no API key, so it never makes a live LLM call. Reasoning is advisory only —
+# it cannot change an outcome or an amount — so skipping it leaves every
+# batch metric identical while keeping a 500-event run fast. Opt back in per
+# request with ?explain=true.
+_fast_pipeline = RecoveryPipeline(
+    classifier=FailureClassifier(),
+    policy_engine=RecoveryPolicyEngine(),
+    reasoner=RecoveryReasoner(nim_api_key=""),
+    executor=MockExecutor(state_store=_state_store),
+    escalation_handler=EscalationHandler(),
+    audit_logger=_audit_logger,
+    state_store=_state_store,
+)
+
 # Worker pipeline: deliberately has NO state store, so a due job actually
 # executes instead of rescheduling itself.
 _worker_pipeline = RecoveryPipeline(
@@ -113,10 +128,10 @@ class DashboardResponse(BaseModel):
 
     # Reasoning
     reasoning_recommendation: str | None = Field(
-        default=None, description="Qwen recommendation text"
+        default=None, description="Model recommendation text"
     )
     reasoning_explanation: str | None = Field(
-        default=None, description="Qwen explanation text"
+        default=None, description="Model explanation text"
     )
     reasoning_success: bool | None = Field(
         default=None, description="Whether the reasoning layer succeeded"
@@ -431,6 +446,14 @@ def run_batch(
     seed: int | None = Query(
         default=None, description="Fix the generator seed for a reproducible batch"
     ),
+    explain: bool = Query(
+        default=False,
+        description=(
+            "Call the live model for every event. Off by default: reasoning "
+            "is advisory and cannot change any outcome, so a batch would pay "
+            "one LLM round trip per event for text nobody reads."
+        ),
+    ),
 ) -> dict[str, Any]:
     """Process a fresh batch of synthetic failures and measure money recovered.
 
@@ -439,9 +462,17 @@ def run_batch(
     """
     started = datetime.now(timezone.utc)
     events = _fresh_batch(count, seed)
+    pipeline = _pipeline if explain else _fast_pipeline
 
     attempted_amount = 0
     recovered_amount = 0
+    reasoning_model_generated = 0
+    reasoning_fallback = 0
+    reasoning_customer_messages = 0
+    # Computed, never assumed: the reasoner copies policy_action_allowed
+    # verbatim, so this must stay 0. A non-zero value would mean the safety
+    # boundary had been breached, and is worth surfacing rather than hiding.
+    reasoning_overrode_policy = 0
     audit_ids: list[str] = []
     outcomes: dict[str, int] = {}
     funnel = {"raw": 0, "needed_signal": 0, "contacted": 0, "confirmed_recovered": 0}
@@ -449,7 +480,7 @@ def run_batch(
 
     for event in events:
         try:
-            result = _pipeline.process(event)
+            result = pipeline.process(event)
         except Exception as exc:  # noqa: BLE001
             logger.error("Batch: pipeline failed for %s: %s", event.event_id, exc)
             continue
@@ -459,6 +490,20 @@ def run_batch(
         outcomes[outcome] = outcomes.get(outcome, 0) + 1
         if result.audit_write is not None and result.audit_write.record is not None:
             audit_ids.append(result.audit_write.record.audit_id)
+
+        if result.reasoning is not None:
+            if result.reasoning.is_fallback:
+                reasoning_fallback += 1
+            else:
+                reasoning_model_generated += 1
+            if result.reasoning.customer_message:
+                reasoning_customer_messages += 1
+            if (
+                result.policy_decision is not None
+                and result.reasoning.policy_action_allowed
+                != result.policy_decision.automatic_recovery_allowed
+            ):
+                reasoning_overrode_policy += 1
 
         execution = result.execution
         got = (
@@ -546,11 +591,36 @@ def run_batch(
             {"scenario": name, **values} for name, values in sorted(by_category.items())
         ],
         "audit_ids": audit_ids,
+        "reasoning": {
+            "mode": "model" if explain else "skipped",
+            "consultations": reasoning_model_generated + reasoning_fallback,
+            "model_generated": reasoning_model_generated,
+            "fallback": reasoning_fallback,
+            "customer_messages": reasoning_customer_messages,
+            "overrode_policy": reasoning_overrode_policy,
+            "model": settings.nim_model,
+        },
         "scheduler": scheduler_summary,
         "simulated": True,
         "duration_seconds": (
             datetime.now(timezone.utc) - started
         ).total_seconds(),
+    }
+
+
+@router.get("/provider")
+def provider_status() -> dict[str, Any]:
+    """Which reasoning provider is configured.
+
+    Never returns the API key itself — only whether one is present, so the
+    UI can say "the agent is on" without having to process an event first.
+    """
+    key = settings.nim_api_key or ""
+    return {
+        "provider": "nvidia-nim",
+        "model": settings.nim_model,
+        "base_url": settings.nim_base_url,
+        "configured": bool(key.strip()),
     }
 
 

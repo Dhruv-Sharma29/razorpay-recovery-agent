@@ -1,7 +1,7 @@
 """End-to-End Pipeline Tests (TASK-008).
 
 Covers all 18 safety and correctness requirements. No network access
-or real Razorpay APIs are used. Ollama is mocked.
+or real Razorpay APIs are used. NIM is mocked.
 """
 
 from __future__ import annotations
@@ -88,7 +88,7 @@ def mock_reasoner(monkeypatch):
             recommendation="Retry recommended",
             explanation="The policy allows retry.",
             confidence=0.9,
-            model_id="qwen3.5-mock",
+            model_id="nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
             policy_action_allowed=policy_decision.automatic_recovery_allowed if policy_decision else False,
             is_fallback=False,
             error=None
@@ -186,16 +186,16 @@ class TestPipelineEndToEnd:
         assert result.escalation.status == EscalationStatus.OPEN
         assert result.escalation.trigger.value == "unknown_unsafe" # missing policy
 
-    def test_8_qwen_recommends_while_policy_denies(self, pipeline, monkeypatch):
-        """8. Qwen recommends recovery while policy denies → NO execution"""
+    def test_8_model_recommends_while_policy_denies(self, pipeline, monkeypatch):
+        """8. Model recommends recovery while policy denies → NO execution"""
         def fake_analyze(self, event, classification, policy_decision):
             return ReasoningResult(
                 success=True,
                 recommendation="You should definitely execute",
                 explanation="I am overriding you",
                 confidence=0.9,
-                model_id="qwen3.5-mock",
-                policy_action_allowed=True, # Qwen tries to override
+                model_id="nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+                policy_action_allowed=True, # the model tries to override
                 is_fallback=False,
                 error=None
             )
@@ -205,13 +205,13 @@ class TestPipelineEndToEnd:
         result = pipeline.process(event)
         
         assert result.policy_decision.automatic_recovery_allowed is False
-        assert result.reasoning.policy_action_allowed is True # Fake qwen output
+        assert result.reasoning.policy_action_allowed is True # Fake model output
         assert result.execution is None # Execution did NOT happen
 
-    def test_9_qwen_failure_safe_behavior(self, pipeline, monkeypatch):
-        """9. Qwen failure → safe behavior"""
+    def test_9_reasoning_failure_safe_behavior(self, pipeline, monkeypatch):
+        """9. Reasoning failure → safe behavior"""
         def fake_analyze(self, event, classification, policy_decision):
-            raise ValueError("Ollama offline")
+            raise ValueError("NIM offline")
         monkeypatch.setattr(RecoveryReasoner, "analyze", fake_analyze)
         
         event = _make_event() # Policy allows
@@ -220,7 +220,7 @@ class TestPipelineEndToEnd:
         # Pipeline catches exception, uses fallback reasoning, STILL executes if policy allowed
         assert result.reasoning.is_fallback is True
         assert result.reasoning.success is False
-        assert "Ollama offline" in result.reasoning.error
+        assert "NIM offline" in result.reasoning.error
         
         assert result.policy_decision.automatic_recovery_allowed is True
         assert result.execution.executed is True
@@ -277,7 +277,7 @@ class TestPipelineEndToEnd:
         assert event.model_dump() == original.model_dump()
 
     def test_14_15_no_real_network(self):
-        """14, 15. pipeline does not call real Razorpay or require Ollama"""
+        """14, 15. pipeline does not call real Razorpay or require NIM access"""
         # Proven by the fact these run instantly without VCR/Mocking requests globally.
         # But we can assert MockExecutor logs.
         pass

@@ -7,7 +7,7 @@ a structured policy decision.
 It does NOT:
 - execute the action
 - call Razorpay
-- call Ollama / Qwen
+- call NIM / Nemotron
 - mutate the payment event
 - use randomness
 

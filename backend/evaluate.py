@@ -56,14 +56,14 @@ def print_report(report: EvaluationReport) -> None:
 
 
 def mock_reasoning_analyze(self, event, classification, policy_decision):
-    """Mock reasoning to avoid real Ollama API calls during large evaluations."""
+    """Mock reasoning to avoid real NIM API calls during large evaluations."""
     from app.reasoning.result import ReasoningResult
     return ReasoningResult(
         success=True,
         recommendation="Mocked recommendation",
         explanation="Mocked explanation for evaluation",
         confidence=0.9,
-        model_id="qwen-mock",
+        model_id="nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
         policy_action_allowed=policy_decision.automatic_recovery_allowed if policy_decision else False,
         is_fallback=True,
     )
@@ -76,7 +76,7 @@ def main():
     output_dir = Path(__file__).parent / "evaluation_results"
     output_dir.mkdir(exist_ok=True)
 
-    # Patch the reasoning engine so we don't spam Ollama/Qwen
+    # Patch the reasoning engine so we don't spam the NIM API
     with patch.object(RecoveryReasoner, "analyze", mock_reasoning_analyze):
         evaluator = Evaluator()
         

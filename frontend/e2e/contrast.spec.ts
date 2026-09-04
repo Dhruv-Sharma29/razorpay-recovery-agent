@@ -18,6 +18,30 @@ const AA_LARGE = 3;
 const SELECTORS = [
   ".stat-tile__label",
   ".stat-tile__value",
+  ".stat-tile__sub",
+  ".sidebar__link-label",
+  ".sidebar__link-hint",
+  ".sidebar__name",
+  ".sidebar__tagline",
+  ".sidebar__footer",
+  ".ai-pill",
+  ".view__header h1",
+  ".view__header p",
+  ".funnel__label",
+  ".funnel__value",
+  ".funnel__caption",
+  ".funnel__definitions dt",
+  ".funnel__definitions dd",
+  ".scenarios__name",
+  ".scenarios__amount",
+  ".scenarios__note",
+  ".outcome-chip",
+  ".banner",
+  ".chain__label",
+  ".chain__value",
+  ".cases__controls span",
+  ".batch-runner__toast",
+  ".source-badge",
   ".rail-node__label",
   ".rail-node__value",
   ".rail-node__reason",
@@ -116,11 +140,13 @@ for (const theme of ["light", "dark"] as const) {
     await page.evaluate((t) => localStorage.setItem("theme", t), theme);
     await page.reload({ waitUntil: "networkidle" });
 
-    // Populate the result rail and audit table so their text is covered
-    // too. Falls back to the error state when no backend is running,
+    // Populate the KPIs, funnel and case table so their text is covered
+    // too. Falls back to the error banner when no backend is running,
     // which is itself worth checking.
-    await page.getByTestId("process-btn").click();
-    await page.waitForTimeout(1500);
+    await page.getByTestId("run-batch-btn").click();
+    await page.waitForTimeout(2500);
+    await page.getByTestId("nav-cases").click();
+    await page.waitForTimeout(800);
 
     const samples = await sample(page, SELECTORS);
     expect(samples.length, "found no text to check").toBeGreaterThan(10);
@@ -155,9 +181,10 @@ test("theme is applied before first paint (no flash)", async ({ page }) => {
 test.describe("KPI tiles", () => {
   test("render as one uniform set", async ({ page }) => {
     await page.goto("/", { waitUntil: "networkidle" });
+    await page.waitForSelector('[data-testid="kpi-tiles"]');
 
     const boxes = await page.evaluate(() =>
-      Array.from(document.querySelectorAll(".stat-tile")).map((el) => {
+      Array.from(document.querySelectorAll(".kpi-row .stat-tile")).map((el) => {
         const r = el.getBoundingClientRect();
         const cs = getComputedStyle(el);
         return [
@@ -170,7 +197,7 @@ test.describe("KPI tiles", () => {
       }),
     );
 
-    expect(boxes).toHaveLength(6);
+    expect(boxes).toHaveLength(4);
     expect(new Set(boxes).size, `tiles differ: ${[...new Set(boxes)]}`).toBe(1);
   });
 });
