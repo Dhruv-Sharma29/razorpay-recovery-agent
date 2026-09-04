@@ -11,7 +11,26 @@ the original policy decision without alteration.
 
 from __future__ import annotations
 
+from enum import Enum
+
 from pydantic import BaseModel, Field
+
+
+class FallbackReason(str, Enum):
+    """Categorized reason the reasoning layer fell back.
+
+    Presentation-only — never changes ``policy_action_allowed`` or any
+    policy field.  The UI switches on this to distinguish skipped vs.
+    failed vs. successful reasoning.
+    """
+
+    API_KEY_UNAVAILABLE = "api_key_unavailable"
+    NIM_TIMEOUT = "nim_timeout"
+    NETWORK_FAILURE = "network_failure"
+    INVALID_MODEL_RESPONSE = "invalid_model_response"
+    INVALID_JSON_RESPONSE = "invalid_json_response"
+    MODEL_UNAVAILABLE = "model_unavailable"
+    POLICY_DECISION_MISSING = "policy_decision_missing"
 
 
 class ReasoningResult(BaseModel):
@@ -87,6 +106,14 @@ class ReasoningResult(BaseModel):
         ),
     )
 
+    from_cache: bool = Field(
+        default=False,
+        description=(
+            "True if this explanation was served from the local cache rather "
+            "than calling the NIM API."
+        ),
+    )
+
     # --- Operator-facing contribution ------------------------------------
     # These are the model's actual value-add: plain-language framing an
     # operator can act on. All are optional — a missing or invalid field
@@ -117,5 +144,15 @@ class ReasoningResult(BaseModel):
         default=None,
         description=(
             "Error message when the reasoning call failed. None on success."
+        ),
+    )
+
+    fallback_reason: FallbackReason | None = Field(
+        default=None,
+        description=(
+            "Categorized reason the reasoning layer fell back. None on "
+            "success. The UI switches on this to distinguish skipped vs. "
+            "failed vs. successful reasoning. Presentation-only — never "
+            "changes policy_action_allowed or any policy field."
         ),
     )

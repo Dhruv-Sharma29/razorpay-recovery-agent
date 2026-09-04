@@ -51,6 +51,7 @@ export interface DashboardResult {
   // AI contribution — advisory only, cannot authorize anything
   reasoning_is_fallback?: boolean | null;
   reasoning_model?: string | null;
+  reasoning_fallback_reason?: string | null;
   root_cause_plain?: string | null;
   why_appropriate?: string | null;
   customer_message?: string | null;
@@ -135,6 +136,7 @@ export interface BatchReasoning {
   consultations: number;
   model_generated: number;
   fallback: number;
+  from_cache: number;
   /** Drafts that passed the compliance filter. */
   customer_messages: number;
   /**
@@ -153,6 +155,16 @@ export interface SchedulerSummary {
   job_ids: string[];
 }
 
+/** Executor-level action breakdown for a batch run. Distinct from the
+ *  funnel (which measures signal-filtering stages). */
+export interface RecoveryActions {
+  retries_attempted: number;
+  payments_recovered: number;
+  payments_pending: number;
+  payments_escalated: number;
+  execution_failed: number;
+}
+
 /** Response from POST /api/dashboard/run-batch */
 export interface BatchSummary {
   transactions_processed: number;
@@ -165,6 +177,7 @@ export interface BatchSummary {
   by_scenario: ScenarioBreakdown[];
   audit_ids: string[];
   reasoning?: BatchReasoning;
+  recovery_actions?: RecoveryActions;
   scheduler: SchedulerSummary | null;
   simulated?: boolean;
   duration_seconds: number;

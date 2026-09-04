@@ -201,3 +201,14 @@ export async function getRisk(limit?: number): Promise<RiskSummary> {
 export async function getProvider(): Promise<ProviderStatus> {
   return requestJson<ProviderStatus>(`${API_BASE}/api/dashboard/provider`);
 }
+
+/** 
+ * Runs a fixed synthetic event through the pipeline to demonstrate a 
+ * complete recovery. No payload required. 
+ */
+export async function runGoldenPath(): Promise<DashboardResult> {
+  return requestJson<DashboardResult>(
+    `${API_BASE}/api/dashboard/golden-path`,
+    { method: "POST" }
+  );
+}

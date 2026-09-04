@@ -31,6 +31,7 @@ function summary(reasoning: Partial<BatchSummary["reasoning"]> | null): BatchSum
           consultations: 14,
           model_generated: 14,
           fallback: 0,
+          from_cache: 0,
           customer_messages: 14,
           overrode_policy: 0,
           model: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
@@ -62,14 +63,14 @@ describe("AiContribution", () => {
   });
 
   it("shows real model answers as a ratio with the fallback count", () => {
-    render(<AiContribution summary={summary({ model_generated: 11, fallback: 3 })} />);
+    render(<AiContribution summary={summary({ model_generated: 11, fallback: 3, from_cache: 0 })} />);
     expect(card().getByText("11 of 14")).toBeInTheDocument();
-    expect(card().getByText("3 fell back safely")).toBeInTheDocument();
+    expect(card().getByText("0 cached, 3 fell back safely")).toBeInTheDocument();
   });
 
   it("reports zero overrides and says why they cannot happen", () => {
     render(<AiContribution summary={summary({})} />);
-    const tile = card().getByText("Changed the outcome").closest(".ai-metric");
+    const tile = card().getByText("Policy overrides — must be 0").closest(".ai-metric");
     expect(within(tile as HTMLElement).getByText("0")).toBeInTheDocument();
     expect(
       within(tile as HTMLElement).getByText(/cannot override a policy decision/i),
@@ -91,6 +92,7 @@ describe("AiContribution", () => {
           consultations: 40,
           model_generated: 37,
           fallback: 3,
+          from_cache: 0,
           customer_messages: 21,
         })}
       />,

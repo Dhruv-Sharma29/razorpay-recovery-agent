@@ -18,58 +18,6 @@ A safety-first recovery pipeline for failed Razorpay-style payment events. The s
 ![Reflow recovery console](docs/demo.gif)
 -->
 
-_Recording still to be captured._ Follow [`docs/PITCH.md`](docs/PITCH.md), which
-doubles as the shot list: run a batch on **Overview** to show measured money
-recovered, open **Cases** and expand one row to show the decision chain, then
-use the three outlined buttons on **Agent** to watch the agent refuse on
-purpose. Save it as `docs/demo.gif` and uncomment the line above.
-
-## Submission
-
-| Item | Link |
-| --- | --- |
-| Public repository | `<add repo URL>` |
-| 5-minute video | `<add video URL>` |
-| Architecture deck | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
-| Pitch script | [`docs/PITCH.md`](docs/PITCH.md) |
-
-### What broke, and how we fixed it
-
-**The paise/rupee boundary.** Amounts are paise on the wire and in the policy
-engine, but operators think in rupees. Mixing the two silently multiplies or
-divides money by 100. The fix is a single conversion at the form boundary —
-the UI holds rupees, converts at submit, and the paise bounds still backstop
-the request — with a test asserting `1499` in the field sends `149900`.
-
-**Dataset/classifier circularity.** The synthetic generator writes a
-`failure_category` onto each event, and the classifier could have simply read
-it back, scoring 100% while proving nothing. Classification is derived from
-`error_code` and the description instead, and the generated label is used only
-as the evaluation's ground truth.
-
-**A CORS wildcard.** The API briefly allowed any origin. It is now restricted
-to a configured allowlist (`CORS_ALLOW_ORIGINS`). This bit us again during the
-UI rebuild when the dev server moved to port 4173 and every request failed —
-the right fix was moving the server back to an allowlisted port, not widening
-the policy.
-
-**A localStorage test-env bug.** The theme hook read `localStorage` during
-render, which throws in private-mode browsers and is not implemented the same
-way under jsdom. Reads and writes are wrapped, `matchMedia` is treated as
-optional, and the theme is resolved by an inline script before first paint so
-a returning dark-mode user never sees a light flash.
-
-**Executor failure handling.** If the executor raised rather than returning a
-structured result, the pipeline could leave `execution` as `None` and report a
-misleadingly clean outcome. A raising executor now produces an explicit
-`FAILED` result so escalation opens and the audit record says what happened.
-
-**Two invariants that pushed back on the plan.** A test forbids `UPDATE`/
-`DELETE` against `audit_log`, so `POST /reset` clears recovery state but never
-audit history. Another forbids storing `customer_id`, so repeat-failure
-grouping uses a pseudonymous `customer_ref` instead. Both guarantees were kept
-and the features built around them.
-
 ## Current implementation status
 
 The golden path is implemented end to end with synthetic/Razorpay-shaped events:

@@ -8,6 +8,7 @@
 import AiContribution from "../components/AiContribution";
 import KpiTiles from "../components/KpiTiles";
 import OutcomesBar from "../components/OutcomesBar";
+import RecoveryActions from "../components/RecoveryActions";
 import RecoveryByScenario from "../components/RecoveryByScenario";
 import RecoveryFunnel from "../components/RecoveryFunnel";
 import RevenueAtRisk from "../components/RevenueAtRisk";
@@ -67,6 +68,7 @@ export default function Overview({
       <div className="view__grid">
         <div className="view__col">
           <RecoveryFunnel funnel={summary?.funnel ?? null} />
+          <RecoveryActions actions={summary?.recovery_actions ?? null} />
           <RecoveryByScenario scenarios={summary?.by_scenario ?? []} />
           <AiContribution summary={summary} />
         </div>

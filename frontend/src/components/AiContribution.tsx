@@ -38,12 +38,12 @@ export default function AiContribution({ summary }: AiContributionProps) {
               {r.model_generated} of {r.consultations}
             </span>
             <span className="ai-metric__note">
-              {r.fallback} fell back safely
+              {r.from_cache} cached, {r.fallback} fell back safely
             </span>
           </div>
 
           <div className="ai-metric">
-            <span className="ai-metric__label">Changed the outcome</span>
+            <span className="ai-metric__label">Policy overrides — must be 0</span>
             <span className="ai-metric__value data-mono">
               {r.overrode_policy}
             </span>

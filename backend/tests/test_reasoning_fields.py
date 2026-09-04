@@ -78,7 +78,7 @@ def _response(body: dict) -> httpx.Response:
 
 def _analyze(model_body: dict, policy=None):
     reasoner = RecoveryReasoner(nim_api_key="k", nim_base_url=URL, nim_model="m")
-    with patch.object(httpx, "post", return_value=_response(model_body)):
+    with patch.object(httpx.Client, "post", return_value=_response(model_body)):
         return reasoner.analyze(_event(), _classification(), policy or _policy())
 
 
