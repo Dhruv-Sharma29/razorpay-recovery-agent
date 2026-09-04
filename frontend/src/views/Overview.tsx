@@ -62,25 +62,19 @@ export default function Overview({
         </div>
       )}
 
-      {/* Two columns: the left stacks the funnel above the scenario
-          breakdown, the right holds the supporting panels. Both columns
-          stretch to the same height, so the right panel's top and bottom
-          line up with the first and last card on the left. */}
+      {/* Two content-driven columns: the left keeps its explanatory panels in
+          flow, while the right can grow independently with its risk data. */}
       <div className="view__grid">
         <div className="view__col">
           <RecoveryFunnel funnel={summary?.funnel ?? null} />
           <RecoveryByScenario scenarios={summary?.by_scenario ?? []} />
+          <AiContribution summary={summary} />
         </div>
         <div className="view__stack">
           <OutcomesBar outcomes={summary?.outcomes ?? null} />
           <RevenueAtRisk risk={risk} />
         </div>
       </div>
-
-      {/* Secondary, explanatory: what the model contributed to the run
-          above. Placed after the recovery KPIs so it never competes with
-          them for attention. */}
-      <AiContribution summary={summary} />
     </div>
   );
 }

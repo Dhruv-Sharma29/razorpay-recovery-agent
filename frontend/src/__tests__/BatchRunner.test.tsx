@@ -35,7 +35,7 @@ describe("BatchRunner", () => {
       target: { value: "40" },
     });
     fireEvent.click(screen.getByTestId("run-batch-btn"));
-    expect(onRun).toHaveBeenCalledWith(40, true);
+    expect(onRun).toHaveBeenCalledWith(40, true, true);
   });
 
   describe("typing the count", () => {
@@ -54,7 +54,7 @@ describe("BatchRunner", () => {
 
       expect(input).toHaveValue(expected);
       fireEvent.click(screen.getByTestId("run-batch-btn"));
-      expect(onRun).toHaveBeenCalledWith(expected, true);
+      expect(onRun).toHaveBeenCalledWith(expected, true, true);
     });
 
     it("lets the field be emptied without snapping back to 1", () => {
@@ -78,7 +78,7 @@ describe("BatchRunner", () => {
       const input = screen.getByTestId("batch-count");
       fireEvent.change(input, { target: { value: "40" } });
       fireEvent.click(screen.getByTestId("run-batch-btn"));
-      expect(onRun).toHaveBeenCalledWith(40, true);
+      expect(onRun).toHaveBeenCalledWith(40, true, true);
     });
   });
 
@@ -88,7 +88,7 @@ describe("BatchRunner", () => {
       target: { value: "9999" },
     });
     fireEvent.click(screen.getByTestId("run-batch-btn"));
-    expect(onRun).toHaveBeenCalledWith(500, true);
+    expect(onRun).toHaveBeenCalledWith(500, true, true);
   });
 
   it("clamps a count below one", () => {
@@ -97,7 +97,7 @@ describe("BatchRunner", () => {
       target: { value: "0" },
     });
     fireEvent.click(screen.getByTestId("run-batch-btn"));
-    expect(onRun).toHaveBeenCalledWith(1, true);
+    expect(onRun).toHaveBeenCalledWith(1, true, true);
   });
 
   it("blocks a second submit while a run is in flight", () => {
@@ -116,7 +116,15 @@ describe("BatchRunner", () => {
     fireEvent.click(screen.getByTestId("run-options-toggle"));
     fireEvent.click(screen.getByTestId("run-scheduler-toggle"));
     fireEvent.click(screen.getByTestId("run-batch-btn"));
-    expect(onRun).toHaveBeenCalledWith(25, false);
+    expect(onRun).toHaveBeenCalledWith(25, false, true);
+  });
+
+  it("can disable live reasoning for a large batch", () => {
+    const { onRun } = setup();
+    fireEvent.click(screen.getByTestId("run-options-toggle"));
+    fireEvent.click(screen.getByTestId("run-explain-toggle"));
+    fireEvent.click(screen.getByTestId("run-batch-btn"));
+    expect(onRun).toHaveBeenCalledWith(25, true, false);
   });
 
   it("says audit history survives a reset", () => {

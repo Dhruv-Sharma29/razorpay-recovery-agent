@@ -160,15 +160,22 @@ export default function App() {
       .catch(() => setProvider(null));
   }, [refreshAudit, refreshRisk]);
 
-  async function handleRun(count: number, runScheduler: boolean) {
+  async function handleRun(
+    count: number,
+    runScheduler: boolean,
+    explain: boolean,
+  ) {
     if (running) return;
     setRunning(true);
     setBatchError(null);
     try {
-      const data = await runBatch(count, { runScheduler });
+      const data = await runBatch(count, { runScheduler, explain });
       setSummary(data);
-      if (data.reasoning && data.reasoning.mode === "model") {
-        setLastWasFallback(data.reasoning.model_generated === 0);
+      if (data.reasoning) {
+        setLastWasFallback(
+          data.reasoning.mode === "skipped" ||
+            data.reasoning.model_generated === 0,
+        );
       }
       setLastRun({
         count: data.transactions_processed,

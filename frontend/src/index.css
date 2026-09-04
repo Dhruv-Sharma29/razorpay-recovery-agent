@@ -1292,25 +1292,17 @@ body {
   max-width: 64ch;
 }
 
-/* Two aligned columns: both stretch to the taller one, so their top and
-   bottom edges match. No fixed heights — the row height is whatever the
-   content needs. */
+/* Two independent columns: each panel should stop at its own content rather
+   than stretching to match the taller column beside it. */
 .view__grid {
   display: grid;
   grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
   gap: 1.25rem;
-  align-items: stretch;
+  align-items: start;
 }
 
-/* Grid children fill their cell rather than hugging their content. */
-.view__grid > .card,
-.view__grid > .view__col,
-.view__grid > .view__stack {
-  height: 100%;
-}
-
-/* Left column: the funnel absorbs any slack so the scenario card stays
-   its natural size and sits flush with the bottom of the row. */
+/* Left column: keep the funnel at its natural height so a long supporting
+   panel on the right cannot create a large empty area inside it. */
 .view__col {
   display: flex;
   flex-direction: column;
@@ -1319,10 +1311,6 @@ body {
   /* Without this a grid item keeps min-width:auto and refuses to shrink
      below its content, widening the track past the grid itself. */
   min-width: 0;
-}
-
-.view__col > .funnel {
-  flex: 1 1 auto;
 }
 
 .banner {
@@ -1818,12 +1806,6 @@ body {
   min-height: 0;
 }
 
-/* The last card absorbs the leftover height so the column's visible bottom
-   edge lines up with the left panel's, instead of leaving a gap. */
-.view__stack > :last-child {
-  flex: 1 1 auto;
-}
-
 .risk__headline {
   font-size: 0.86rem;
   color: var(--text-secondary);
@@ -1870,7 +1852,10 @@ body {
   font-size: 0.8rem;
   color: var(--text-primary);
   font-weight: 600;
-  overflow-wrap: anywhere;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .risk__value {
@@ -1878,6 +1863,7 @@ body {
   font-weight: 700;
   color: var(--text-primary);
   text-align: right;
+  white-space: nowrap;
 }
 
 .risk__meta {
@@ -1948,11 +1934,15 @@ body {
 }
 
 .ai-metric__label {
+  display: block;
   font-size: 0.68rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-secondary);
+  line-height: 1.4;
+  /* Keep values aligned when a longer heading wraps to a second line. */
+  min-height: 2.8em;
 }
 
 .ai-metric__value {

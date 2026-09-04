@@ -85,7 +85,10 @@ describe("App", () => {
     await waitFor(() => {
       expect(screen.getByText("₹2.5K")).toBeInTheDocument();
     });
-    expect(api.runBatch).toHaveBeenCalledWith(25, { runScheduler: true });
+    expect(api.runBatch).toHaveBeenCalledWith(25, {
+      runScheduler: true,
+      explain: true,
+    });
   });
 
   it("refreshes the audit log after a batch so Cases stays in sync", async () => {
