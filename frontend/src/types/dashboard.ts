@@ -8,6 +8,7 @@
 /** Final outcome of a pipeline run — directly from backend enum. */
 export type FinalOutcome =
   | "recovered"
+  | "pending"
   | "denied"
   | "escalated"
   | "execution_failed"
@@ -42,6 +43,19 @@ export interface DashboardResult {
   escalation_reason: string | null;
   escalation_severity: string | null;
 
+  // Simulated payment result (never a real gateway confirmation)
+  payment_status?: string | null;
+  amount_recovered?: number | null;
+  simulated?: boolean | null;
+
+  // AI contribution — advisory only, cannot authorize anything
+  reasoning_is_fallback?: boolean | null;
+  reasoning_model?: string | null;
+  root_cause_plain?: string | null;
+  why_appropriate?: string | null;
+  customer_message?: string | null;
+  escalation_summary?: string | null;
+
   // Final outcome
   final_outcome: FinalOutcome;
 
@@ -73,12 +87,119 @@ export interface AuditRecord {
   error: string | null;
   attempt_number: number | null;
   amount: number | null;
+
+  /** Decision chain: cause -> rule -> bound -> action -> outcome -> money. */
+  classification_rule_id?: string | null;
+  policy_rule_id?: string | null;
+  amount_limit?: number | null;
+  max_retries?: number | null;
+  cooldown_seconds?: number | null;
+  scheduled_for?: string | null;
+  payment_status?: string | null;
+  amount_recovered?: number | null;
+  escalation_trigger?: string | null;
+  reasoning_is_fallback?: boolean | null;
+}
+
+/** One failure category's money rollup within a batch. */
+export interface ScenarioBreakdown {
+  scenario: string;
+  count: number;
+  recovered_count: number;
+  attempted_amount: number;
+  recovered_amount: number;
+  recovery_rate_amount: number;
+}
+
+/** Raw events narrowed to money actually recovered. Each stage is a real
+ *  filter over the one above it, not a restatement. */
+export interface FunnelCounts {
+  raw: number;
+  needed_signal: number;
+  contacted: number;
+  confirmed_recovered: number;
+}
+
+/** GET /api/dashboard/provider — configuration, never the key itself. */
+export interface ProviderStatus {
+  provider: string;
+  model: string;
+  base_url: string;
+  configured: boolean;
+}
+
+/** How a batch produced its explanations. */
+export interface BatchReasoning {
+  mode: "model" | "skipped";
+  /** Every event that reached the reasoning stage. */
+  consultations: number;
+  model_generated: number;
+  fallback: number;
+  /** Drafts that passed the compliance filter. */
+  customer_messages: number;
+  /**
+   * Times the model's verdict differed from the policy's. Structurally
+   * always 0 — a non-zero value means the safety boundary was breached.
+   */
+  overrode_policy: number;
+  model: string;
+}
+
+export interface SchedulerSummary {
+  ran: number;
+  recovered: number;
+  failed: number;
+  amount_recovered?: number;
+  job_ids: string[];
+}
+
+/** Response from POST /api/dashboard/run-batch */
+export interface BatchSummary {
+  transactions_processed: number;
+  total_attempted_amount: number;
+  total_recovered_amount: number;
+  recovery_rate_by_amount: number;
+  recovery_rate_by_count: number;
+  outcomes: Record<string, number>;
+  funnel: FunnelCounts;
+  by_scenario: ScenarioBreakdown[];
+  audit_ids: string[];
+  reasoning?: BatchReasoning;
+  scheduler: SchedulerSummary | null;
+  simulated?: boolean;
+  duration_seconds: number;
+}
+
+export interface ScheduledJob {
+  job_id: string;
+  payment_id: string;
+  event_id: string;
+  action: string;
+  next_eligible_at: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ScheduledJobsResponse {
+  jobs: ScheduledJob[];
+  count: number;
+}
+
+export interface ResetResponse {
+  cleared: boolean;
+  recovery_state_cleared: boolean;
+  audit_log_preserved: boolean;
+  note: string;
 }
 
 /** Response from GET /api/dashboard/audit */
 export interface AuditLogResponse {
   records: AuditRecord[];
+  /** Records in this page. */
   count: number;
+  /** Total matching records, ignoring pagination. */
+  total?: number;
 }
 
 /** Payload for POST /api/dashboard/process */
@@ -97,4 +218,36 @@ export interface PaymentEventPayload {
   attempt_number: number;
   mandate_status: string | null;
   timestamp: string;
+}
+
+/** Revenue-at-risk rollups from GET /api/dashboard/risk. */
+export interface MerchantRisk {
+  merchant_id: string;
+  failures: number;
+  at_risk_amount: number;
+  recovered_amount: number;
+  outstanding_amount: number;
+}
+
+export interface RepeatCustomer {
+  /** Pseudonymous reference — the raw customer id is never stored. */
+  customer_ref: string;
+  failures: number;
+  at_risk_amount: number;
+}
+
+export interface SubscriptionRisk {
+  count: number;
+  at_risk_amount: number;
+  mandate_issues: number;
+}
+
+export interface RiskSummary {
+  total_at_risk_amount: number;
+  total_recovered_amount: number;
+  outstanding_amount: number;
+  records_considered: number;
+  by_merchant: MerchantRisk[];
+  repeat_customers: RepeatCustomer[];
+  subscription_failures: SubscriptionRisk;
 }

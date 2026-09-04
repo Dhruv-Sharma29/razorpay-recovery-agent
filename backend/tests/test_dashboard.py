@@ -1,6 +1,6 @@
 """Dashboard API tests (TASK-009).
 
-Tests the dashboard-facing endpoints. No real Razorpay or Ollama calls.
+Tests the dashboard-facing endpoints. No real Razorpay or NIM calls.
 Validates that the API layer faithfully projects pipeline results
 without duplicating or overriding policy logic.
 """
@@ -50,10 +50,10 @@ def _make_event_payload(
     }
 
 
-# We need to mock the reasoner so Ollama is not called
+# We need to mock the reasoner so NIM is not called
 @pytest.fixture(autouse=True)
 def mock_reasoner():
-    """Mock the Ollama/Qwen reasoning call for all dashboard tests."""
+    """Mock the NIM (Nemotron) reasoning call for all dashboard tests."""
     from app.reasoning.engine import RecoveryReasoner
     from app.reasoning.result import ReasoningResult
 
@@ -63,7 +63,7 @@ def mock_reasoner():
             recommendation="Retry recommended by reasoning layer",
             explanation="The policy decision has been analyzed.",
             confidence=0.9,
-            model_id="qwen3.5-mock",
+            model_id="nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
             policy_action_allowed=(
                 policy_decision.automatic_recovery_allowed
                 if policy_decision

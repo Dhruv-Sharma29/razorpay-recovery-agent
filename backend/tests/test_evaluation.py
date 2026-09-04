@@ -220,7 +220,7 @@ class TestEvaluationHarness:
         evaluator = Evaluator()
         
         # The MockExecutor inside Evaluator should prevent Razorpay calls.
-        # We just need to mock the Reasoner to prevent Ollama/Anthropic calls.
+        # We just need to mock the Reasoner to prevent live NIM calls.
         with patch("app.reasoning.engine.RecoveryReasoner.analyze") as mock_reasoning:
             mock_reasoning.return_value = MagicMock(success=True)
             report = evaluator.evaluate("Test", file_path)

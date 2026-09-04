@@ -7,7 +7,7 @@ This component NEVER:
 - authorizes recovery
 - executes payments
 - calls Razorpay
-- calls Ollama / Qwen / external LLMs
+- calls NIM / Nemotron / external LLMs
 - mutates the payment event or policy decision
 - stores credentials or API keys
 """

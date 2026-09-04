@@ -1,6 +1,6 @@
 """Tests for the deterministic escalation handler (TASK-007 Part A).
 
-No network access, no Razorpay credentials, no Ollama required.
+No network access, no Razorpay credentials, no NIM access required.
 
 Coverage:
   1. policy denial → escalation
@@ -135,7 +135,7 @@ def _make_reasoning(
         recommendation="Follow policy",
         explanation="Policy decision stands",
         confidence=0.8 if success else 0.0,
-        model_id="qwen3.5:test" if success else "fallback",
+        model_id="nvidia/nemotron-3-nano-omni-30b-a3b-reasoning" if success else "fallback",
         policy_action_allowed=policy_action_allowed,
         is_fallback=is_fallback,
         error=error,
@@ -250,7 +250,7 @@ class TestReasoningFailureSafeEscalation:
             success=False,
             policy_action_allowed=False,
             is_fallback=True,
-            error="Ollama unavailable",
+            error="NIM unavailable",
         )
         result = handler.handle(
             event,
@@ -270,7 +270,7 @@ class TestReasoningFailureSafeEscalation:
             success=False,
             policy_action_allowed=True,
             is_fallback=True,
-            error="Ollama unavailable",
+            error="NIM unavailable",
         )
         result = handler.handle(
             event,

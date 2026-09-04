@@ -10,6 +10,7 @@ import type { FinalOutcome } from "../types/dashboard";
 
 const LABELS: Record<FinalOutcome, string> = {
   recovered: "Recovered",
+  pending: "Pending",
   denied: "Denied",
   escalated: "Escalated",
   execution_failed: "Failed",

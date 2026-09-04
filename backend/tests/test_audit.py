@@ -1,6 +1,6 @@
 """Tests for the append-only audit log (TASK-007 Part B).
 
-No network access, no Razorpay credentials, no Ollama required.
+No network access, no Razorpay credentials, no NIM access required.
 
 Coverage:
   10. successful recovery can be audited
@@ -114,7 +114,7 @@ def _make_reasoning(*, success: bool = True, error: str | None = None) -> Reason
         recommendation="Follow policy",
         explanation="Policy decision stands",
         confidence=0.9 if success else 0.0,
-        model_id="qwen3.5:test" if success else "fallback",
+        model_id="nvidia/nemotron-3-nano-omni-30b-a3b-reasoning" if success else "fallback",
         policy_action_allowed=True if success else False,
         is_fallback=not success,
         error=error,
