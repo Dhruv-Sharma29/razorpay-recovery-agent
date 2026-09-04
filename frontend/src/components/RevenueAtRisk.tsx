@@ -47,7 +47,9 @@ export default function RevenueAtRisk({ risk }: RevenueAtRiskProps) {
           <ul className="risk__list">
             {risk.by_merchant.map((m) => (
               <li key={m.merchant_id}>
-                <span className="risk__key">{m.merchant_id}</span>
+                <span className="risk__key" title={m.merchant_id}>
+                  {m.merchant_id}
+                </span>
                 <span className="risk__value data-mono">
                   {formatRupees(m.outstanding_amount)}
                 </span>
@@ -68,7 +70,12 @@ export default function RevenueAtRisk({ risk }: RevenueAtRiskProps) {
           <ul className="risk__list">
             {risk.repeat_customers.map((c) => (
               <li key={c.customer_ref}>
-                <span className="risk__key data-mono">{c.customer_ref}</span>
+                <span
+                  className="risk__key data-mono"
+                  title={c.customer_ref}
+                >
+                  {c.customer_ref}
+                </span>
                 <span className="risk__value data-mono">
                   {formatRupees(c.at_risk_amount)}
                 </span>

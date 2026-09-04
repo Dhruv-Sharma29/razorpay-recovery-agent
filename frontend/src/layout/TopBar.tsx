@@ -15,7 +15,7 @@ interface TopBarProps {
   /** Most recent *observed* result, if any event has been explained yet. */
   lastWasFallback: boolean | null;
   running: boolean;
-  onRun: (count: number, runScheduler: boolean) => void;
+  onRun: (count: number, runScheduler: boolean, explain: boolean) => void;
   onReset: () => void;
   lastRunSeconds?: number | null;
   lastRunCount?: number | null;

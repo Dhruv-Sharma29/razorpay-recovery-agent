@@ -13,7 +13,7 @@ const MAX_COUNT = 500;
 
 interface BatchRunnerProps {
   running: boolean;
-  onRun: (count: number, runScheduler: boolean) => void;
+  onRun: (count: number, runScheduler: boolean, explain: boolean) => void;
   onReset: () => void;
   lastRunSeconds?: number | null;
   lastRunCount?: number | null;
@@ -45,6 +45,9 @@ export default function BatchRunner({
 }: BatchRunnerProps) {
   const [countText, setCountText] = useState("25");
   const [runScheduler, setRunScheduler] = useState(true);
+  // Live reasoning is the dashboard's default experience. Users can turn it
+  // off for large batches when they only need the deterministic metrics.
+  const [explain, setExplain] = useState(true);
   const [optionsOpen, setOptionsOpen] = useState(false);
 
   return (
@@ -70,7 +73,22 @@ export default function BatchRunner({
             <label className="batch-runner__check">
               <input
                 type="checkbox"
+                checked={explain}
+                disabled={running}
+                onChange={(e) => setExplain(e.target.checked)}
+                data-testid="run-explain-toggle"
+              />
+              Use live Nemotron reasoning
+            </label>
+            <p className="batch-runner__note">
+              On calls the configured model once per event. Turn it off for a
+              large batch when you only need the deterministic metrics.
+            </p>
+            <label className="batch-runner__check">
+              <input
+                type="checkbox"
                 checked={runScheduler}
+                disabled={running}
                 onChange={(e) => setRunScheduler(e.target.checked)}
                 data-testid="run-scheduler-toggle"
               />
@@ -119,7 +137,7 @@ export default function BatchRunner({
       <button
         type="button"
         className="btn btn--primary"
-        onClick={() => onRun(parseCount(countText), runScheduler)}
+        onClick={() => onRun(parseCount(countText), runScheduler, explain)}
         disabled={running}
         data-testid="run-batch-btn"
       >
