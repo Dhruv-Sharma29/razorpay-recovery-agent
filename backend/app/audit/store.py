@@ -14,6 +14,7 @@ This component NEVER:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
@@ -114,6 +115,38 @@ def redact_secrets(value: Any, key: str | None = None) -> Any:
     return value
 
 
+# Domain separator. This makes the reference stable across restarts so
+# repeat failures can be grouped, while keeping the raw id out of storage.
+# It is a pseudonym, not an anonymisation: the customer id space is small,
+# so treat customer_ref as sensitive, just less so than the id itself.
+_CUSTOMER_REF_SALT = "reflow.audit.customer_ref.v1"
+
+
+def _pseudonymise(customer_id: str | None) -> str | None:
+    """Stable, non-reversible-at-a-glance reference for a customer."""
+    if not customer_id:
+        return None
+    digest = hashlib.sha256(
+        f"{_CUSTOMER_REF_SALT}:{customer_id}".encode("utf-8")
+    ).hexdigest()
+    return f"cref_{digest[:16]}"
+
+
+def _scheduled_for(execution: ExecutionResult) -> str | None:
+    """ISO timestamp a deferred retry becomes eligible, if it was scheduled.
+
+    The pipeline encodes it in the reason string when it defers; anything
+    else has no scheduled time.
+    """
+    if execution.status != ExecutionStatus.SCHEDULED:
+        return None
+    reason = execution.reason or ""
+    marker = "Scheduled for "
+    if marker not in reason:
+        return None
+    return reason.split(marker, 1)[1].split(" ", 1)[0] or None
+
+
 def derive_outcome(
     *,
     policy_decision: PolicyDecision | None,
@@ -126,6 +159,9 @@ def derive_outcome(
         EscalationStatus.FAILED_CLOSED,
     ):
         return AuditOutcome.ESCALATED
+    if execution is not None and execution.status == ExecutionStatus.SCHEDULED:
+        # Authorized but not yet run: pending, never "recovered".
+        return AuditOutcome.PENDING
     if execution is not None and execution.status == ExecutionStatus.FAILED:
         return AuditOutcome.EXECUTION_FAILED
     if execution is not None and execution.status == ExecutionStatus.SUCCESS and execution.executed:
@@ -287,11 +323,23 @@ class AuditLogger:
         payment_id = "unknown"
         attempt_number = None
         amount = None
+        merchant_id = None
+        customer_ref = None
+        transaction_type = None
+        mandate_status = None
         if isinstance(payment_event, FailedTransactionEvent):
             event_id = payment_event.event_id
             payment_id = payment_event.razorpay_payment_id
             attempt_number = payment_event.attempt_number
             amount = payment_event.amount
+            merchant_id = payment_event.merchant_id
+            customer_ref = _pseudonymise(payment_event.customer_id)
+            transaction_type = getattr(
+                payment_event.type, "value", payment_event.type
+            )
+            mandate_status = getattr(
+                payment_event.mandate_status, "value", payment_event.mandate_status
+            )
 
         error_parts: list[str] = []
         if execution is not None and execution.error:
@@ -355,4 +403,45 @@ class AuditLogger:
             error=error if isinstance(error, str) or error is None else str(error),
             attempt_number=attempt_number,
             amount=amount,
+            merchant_id=merchant_id,
+            customer_ref=customer_ref,
+            transaction_type=transaction_type,
+            mandate_status=mandate_status,
+            # --- Decision chain ---
+            classification_rule_id=(
+                classification.rule_id if classification is not None else None
+            ),
+            policy_rule_id=(
+                policy_decision.rule_id if policy_decision is not None else None
+            ),
+            amount_limit=(
+                policy_decision.amount_limit if policy_decision is not None else None
+            ),
+            max_retries=(
+                policy_decision.max_retries_for_category
+                if policy_decision is not None
+                else None
+            ),
+            cooldown_seconds=(
+                getattr(policy_decision, "cooldown_seconds", None)
+                if policy_decision is not None
+                else None
+            ),
+            scheduled_for=(
+                _scheduled_for(execution) if execution is not None else None
+            ),
+            payment_status=(
+                execution.payment_status if execution is not None else None
+            ),
+            amount_recovered=(
+                execution.amount_recovered if execution is not None else None
+            ),
+            escalation_trigger=(
+                escalation.trigger.value
+                if escalation is not None and escalation.trigger is not None
+                else None
+            ),
+            reasoning_is_fallback=(
+                reasoning.is_fallback if reasoning is not None else None
+            ),
         )

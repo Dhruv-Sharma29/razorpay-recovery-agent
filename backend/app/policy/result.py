@@ -85,6 +85,14 @@ class PolicyDecision(BaseModel):
         ...,
         description="Transaction amount in paise",
     )
+    cooldown_seconds: int = Field(
+        default=0,
+        description=(
+            "Seconds the authorized action must wait before running. "
+            "0 means execute immediately."
+        ),
+    )
+
     amount_limit: int = Field(
         ...,
         description="Configured automatic recovery amount limit in paise",

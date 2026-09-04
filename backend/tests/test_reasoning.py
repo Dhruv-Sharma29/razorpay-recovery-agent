@@ -607,7 +607,10 @@ class TestConfiguredModel:
     ):
         """The HTTP payload uses the configured model name."""
         custom_model = "qwen3.5:special"
+        # An API key is required to reach the HTTP path at all: the engine
+        # short-circuits to the deterministic fallback without one.
         reasoner = RecoveryReasoner(
+            nim_api_key="test-key",
             nim_base_url=_TEST_NIM_URL,
             nim_model=custom_model,
         )
@@ -639,7 +642,9 @@ class TestConfiguredUrl:
     ):
         """HTTP request is sent to the configured NIM URL."""
         custom_url = "http://my-nim:9999"
+        # See above: without a key the engine never issues the request.
         reasoner = RecoveryReasoner(
+            nim_api_key="test-key",
             nim_base_url=custom_url,
             nim_model=_TEST_MODEL,
         )

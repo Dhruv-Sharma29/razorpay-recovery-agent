@@ -1,7 +1,12 @@
-"""Mock/sandbox recovery executor.
+"""Simulated payment executor.
 
 This executor simulates recovery actions without making any external
 network calls.  It is used for testing, development, and demo purposes.
+
+Unlike a bare mock it reports a *simulated payment result* — a payment
+status and the amount recovered — so the pipeline can measure money
+moved. Every result carries ``simulated=True``: no real gateway is ever
+contacted.
 
 A future Razorpay adapter can replace this implementation by subclassing
 ``RecoveryExecutor`` and implementing ``_do_execute`` with real API calls,
@@ -12,24 +17,25 @@ from __future__ import annotations
 
 import logging
 
-from app.executor.base import RecoveryExecutor
+from app.executor.base import ExecOutcome, RecoveryExecutor
 from app.models.payment_event import FailedTransactionEvent
 from app.policy.result import PolicyDecision
 
 logger = logging.getLogger(__name__)
 
 
-class MockExecutor(RecoveryExecutor):
-    """Mock executor that simulates recovery actions.
+class SimulatedPaymentExecutor(RecoveryExecutor):
+    """Executor that simulates recovery actions and their payment result.
 
     Does NOT make any external API calls, network requests, or
     side effects beyond updating the internal idempotency store.
 
     Behavior:
-    - All authorized actions succeed by default.
+    - All authorized actions succeed by default, reporting the payment as
+      ``captured`` and recovering the event's full amount.
     - ``simulate_failure`` can be set to True to simulate downstream
-      failures for testing error handling.
-    - ``simulate_failure_message`` controls the error message.
+      failures for testing error handling; the payment is then ``failed``
+      and nothing is recovered.
     - ``execution_log`` records all executed actions for verification.
     """
 
@@ -49,8 +55,8 @@ class MockExecutor(RecoveryExecutor):
         payment_event: FailedTransactionEvent,
         policy_decision: PolicyDecision,
         execution_id: str,
-    ) -> tuple[bool, str | None]:
-        """Simulate executing a recovery action.
+    ) -> ExecOutcome:
+        """Simulate executing a recovery action and its payment result.
 
         Records the execution in ``execution_log`` and returns success
         or failure based on the ``simulate_failure`` flag.
@@ -60,7 +66,7 @@ class MockExecutor(RecoveryExecutor):
         action = policy_decision.action.value
 
         logger.info(
-            "MockExecutor: %s action=%s payment=%s execution_id=%s",
+            "SimulatedPaymentExecutor: %s action=%s payment=%s execution_id=%s",
             "SIMULATING FAILURE" if self.simulate_failure else "executing",
             action,
             payment_event.razorpay_payment_id,
@@ -78,6 +84,23 @@ class MockExecutor(RecoveryExecutor):
         )
 
         if self.simulate_failure:
-            return False, self.simulate_failure_message
+            return ExecOutcome(
+                success=False,
+                error=self.simulate_failure_message,
+                payment_status="failed",
+                amount_recovered=0,
+            )
 
-        return True, None
+        # The recovery attempt captured the original failed amount. This is
+        # a simulation, not a gateway confirmation — ExecutionResult.simulated
+        # stays True to say so.
+        return ExecOutcome(
+            success=True,
+            error=None,
+            payment_status="captured",
+            amount_recovered=payment_event.amount,
+        )
+
+
+# Backwards-compatible alias: the executor was previously named MockExecutor.
+MockExecutor = SimulatedPaymentExecutor

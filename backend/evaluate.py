@@ -9,6 +9,11 @@ from app.evaluation.harness import Evaluator, EvaluationReport
 from app.reasoning.engine import RecoveryReasoner
 
 
+def _rupees(paise: int) -> str:
+    """Paise are the wire unit; rupees are what a human reads."""
+    return f"Rs {paise / 100:,.2f}"
+
+
 def print_report(report: EvaluationReport) -> None:
     """Print a human-readable summary of the evaluation report."""
     print(f"\n{'='*50}")
@@ -22,7 +27,26 @@ def print_report(report: EvaluationReport) -> None:
     print(f"Execution Failures:        {report.execution_failure_count}")
     print(f"Unknown/Unsafe count:      {report.unknown_unsafe_count}")
     print(f"False Auto-Recoveries:     {report.false_automatic_recovery_count}")
-    
+
+    print(f"\n{'-'*50}")
+    print("MONEY RECOVERED (simulated executor, test mode)")
+    print(f"{'-'*50}")
+    print(f"Amount Attempted:          {_rupees(report.total_attempted_amount)}")
+    print(f"Amount Recovered:          {_rupees(report.total_recovered_amount)}")
+    print(f"Amount Escalated:          {_rupees(report.amount_escalated)}")
+    print(f"Amount Not Recovered:      {_rupees(report.amount_failed)}")
+    print(f"Recovery Rate (by amount): {report.recovery_rate_by_amount:.2%}")
+    print(f"Recovery Rate (by count):  {report.recovery_rate_by_count:.2%}")
+
+    if report.by_category:
+        print("\nBy category:")
+        for name, b in sorted(report.by_category.items()):
+            print(
+                f"  {name:<24} {_rupees(b.recovered_amount):>14} of "
+                f"{_rupees(b.attempted_amount):<14} "
+                f"({b.recovery_rate_amount:.0%})  n={b.count}"
+            )
+
     if report.false_automatic_recovery_count > 0:
         print("\nWARNING: False automatic recoveries detected!")
         for rec in report.records:

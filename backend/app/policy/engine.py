@@ -67,6 +67,8 @@ class _CategoryPolicy:
     max_retries: int
     rule_id: str
     reason_template: str
+    # How long to wait before the authorized action may run. 0 means run now.
+    cooldown_seconds: int = 0
 
 
 _CATEGORY_POLICIES: dict[FailureCategory, _CategoryPolicy] = {
@@ -74,6 +76,7 @@ _CATEGORY_POLICIES: dict[FailureCategory, _CategoryPolicy] = {
         category=FailureCategory.INSUFFICIENT_FUNDS,
         action=PolicyAction.SCHEDULED_RETRY,
         max_retries=2,
+        cooldown_seconds=86_400,
         rule_id="policy.insufficient_funds.retry_24h",
         reason_template=(
             "Insufficient funds: retry after 24h cooldown permitted "
@@ -281,6 +284,7 @@ class RecoveryPolicyEngine:
             max_retries_for_category=cat_policy.max_retries,
             current_attempt=attempt,
             amount=amount,
+            cooldown_seconds=cat_policy.cooldown_seconds,
             amount_limit=self._amount_limit,
         )
 

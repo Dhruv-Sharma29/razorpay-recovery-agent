@@ -59,11 +59,18 @@ CRITICAL CONSTRAINTS — you MUST obey ALL of these:
 6. If the policy denied recovery (automatic_recovery_allowed=false), you MUST \
    acknowledge the denial and explain why it is correct.
 
+7. The customer message MUST NOT state amounts, promise a refund or \
+   retry, or claim any action has been authorized.
+
 OUTPUT FORMAT — respond with ONLY a JSON object, no markdown fencing:
 {
   "recommendation": "<short action recommendation consistent with the policy>",
   "explanation": "<2-3 sentence explanation of WHY the payment failed and WHY the policy decision is appropriate>",
-  "confidence": <float 0.0 to 1.0>
+  "confidence": <float 0.0 to 1.0>,
+  "root_cause_plain": "<one sentence, plain language, no jargon: why this payment failed>",
+  "why_appropriate": "<one sentence: why the policy's action is the right response>",
+  "customer_message": "<2 sentences of polite customer-facing copy. No amounts, no promises, no authorization claims>",
+  "escalation_summary": "<one sentence for a human reviewer; empty string if not escalated>"
 }
 """
 
@@ -107,6 +114,54 @@ def _build_user_prompt(
     )
 
 
+# Phrases that would make customer copy make a promise the policy has not
+# authorized. Cheaper and more predictable than asking the model twice.
+_UNSAFE_CUSTOMER_PHRASES = (
+    "refund",
+    "authorized",
+    "authorised",
+    "guarantee",
+    "guaranteed",
+    "we have charged",
+    "we will charge",
+)
+
+
+def _clean_optional(value: Any, *, max_chars: int = 600) -> str | None:
+    """Accept a non-empty string, else None.
+
+    An absent or malformed optional field must never fail the whole
+    explanation — it just does not appear.
+    """
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    return text[:max_chars]
+
+
+def _clean_customer_message(value: Any) -> str | None:
+    """Customer copy, rejected outright if it over-promises.
+
+    The model may not tell a customer that money moved or that a recovery
+    was approved — only the policy decides that, and the message is drafted
+    before any retry has run.
+    """
+    text = _clean_optional(value, max_chars=400)
+    if text is None:
+        return None
+    lowered = text.lower()
+    if any(phrase in lowered for phrase in _UNSAFE_CUSTOMER_PHRASES):
+        logger.warning("Rejected customer_message containing an unsafe promise")
+        return None
+    if any(ch.isdigit() for ch in text):
+        # Amounts and dates in customer copy are a compliance risk here.
+        logger.warning("Rejected customer_message containing digits")
+        return None
+    return text
+
+
 def _build_fallback(
     policy_decision: PolicyDecision,
     model_id: str,
@@ -139,6 +194,21 @@ def _build_fallback(
         model_id=model_id,
         policy_action_allowed=policy_decision.automatic_recovery_allowed,
         is_fallback=True,
+        # Grounded in the rule that actually fired, so the operator view is
+        # never blank when the model is unavailable. Clearly labelled as the
+        # fallback via is_fallback.
+        root_cause_plain=(
+            classification.reason
+            if classification is not None
+            else "The failure could not be classified."
+        ),
+        why_appropriate=policy_decision.reason,
+        customer_message=None,
+        escalation_summary=(
+            policy_decision.reason
+            if policy_decision.escalation_required
+            else None
+        ),
         error=error_msg,
     )
 
@@ -233,6 +303,10 @@ def _parse_nim_response(
         model_id=model_id,
         policy_action_allowed=policy_decision.automatic_recovery_allowed,
         is_fallback=False,
+        root_cause_plain=_clean_optional(parsed.get("root_cause_plain")),
+        why_appropriate=_clean_optional(parsed.get("why_appropriate")),
+        customer_message=_clean_customer_message(parsed.get("customer_message")),
+        escalation_summary=_clean_optional(parsed.get("escalation_summary")),
         error=None,
     )
 

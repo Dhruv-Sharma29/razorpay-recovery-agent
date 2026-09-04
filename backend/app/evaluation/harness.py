@@ -39,6 +39,71 @@ class EvaluationRecord(BaseModel):
     final_outcome: str
     is_false_automatic_recovery: bool = False
     error: str | None = None
+    attempted_amount: int = 0
+    recovered_amount: int = 0
+    payment_status: str | None = None
+
+
+def _as_paise(value: Any) -> int:
+    """Coerce an executor-reported amount to whole paise.
+
+    The harness runs against arbitrary executor implementations (including
+    test doubles), so anything that is not a real integer counts as zero
+    rather than corrupting the money totals.
+    """
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+
+class FunnelCounts(BaseModel):
+    """Raw events narrowed down to money actually recovered.
+
+    Each stage is a real filter over the one above it, not a restatement:
+    a case can need a signal without being contacted, and be contacted
+    without the payment being captured.
+    """
+
+    raw: int = 0
+    """Every event processed in the batch."""
+
+    needed_signal: int = 0
+    """Policy warranted an intervention (recovery allowed, or escalated)."""
+
+    contacted: int = 0
+    """An action was actually attempted against the payment."""
+
+    confirmed_recovered: int = 0
+    """The simulated payment was captured with a non-zero amount."""
+
+
+def classify_funnel_stage(
+    *,
+    automatic_recovery_allowed: bool,
+    escalated: bool,
+    executed: bool,
+    recovered_amount: int,
+) -> dict[str, bool]:
+    """Single definition of the funnel stages a case belongs to.
+
+    Shared by ``evaluate.py`` and the batch endpoint so the funnel and the
+    KPIs can never drift apart.
+    """
+    needed_signal = bool(automatic_recovery_allowed or escalated)
+    return {
+        "raw": True,
+        "needed_signal": needed_signal,
+        "contacted": bool(executed),
+        "confirmed_recovered": recovered_amount > 0,
+    }
+
+
+class CategoryBreakdown(BaseModel):
+    """Per-failure-category money and count rollup."""
+
+    count: int = 0
+    recovered_count: int = 0
+    attempted_amount: int = 0
+    recovered_amount: int = 0
+    recovery_rate_amount: float = 0.0
 
 
 class EvaluationReport(BaseModel):
@@ -52,6 +117,19 @@ class EvaluationReport(BaseModel):
     execution_failure_count: int = 0
     unknown_unsafe_count: int = 0
     false_automatic_recovery_count: int = 0
+
+    # Money moved. The brief's headline metric is measured recovery, not a
+    # success count, so amounts are tracked alongside every outcome.
+    total_attempted_amount: int = 0
+    total_recovered_amount: int = 0
+    amount_escalated: int = 0
+    amount_failed: int = 0
+    recovery_rate_by_amount: float = 0.0
+    recovery_rate_by_count: float = 0.0
+
+    by_category: dict[str, CategoryBreakdown] = Field(default_factory=dict)
+    funnel: FunnelCounts = Field(default_factory=FunnelCounts)
+
     records: list[EvaluationRecord] = Field(default_factory=list)
 
 
@@ -170,6 +248,53 @@ class Evaluator:
             if predicted_category == "unknown":
                 report.unknown_unsafe_count += 1
 
+            # --- Money moved -------------------------------------------------
+            # Attempted is the full value at stake; recovered comes from the
+            # executor's simulated payment result, never inferred from the
+            # outcome label.
+            attempted_amount = _as_paise(event.amount)
+            execution = result.execution
+            recovered_amount = (
+                _as_paise(execution.amount_recovered)
+                if execution is not None
+                else 0
+            )
+            payment_status = (
+                execution.payment_status if execution is not None else None
+            )
+            if not isinstance(payment_status, str):
+                payment_status = None
+
+            report.total_attempted_amount += attempted_amount
+            report.total_recovered_amount += recovered_amount
+            if final_outcome == "escalated":
+                report.amount_escalated += attempted_amount
+            elif recovered_amount == 0:
+                report.amount_failed += attempted_amount
+
+            stages = classify_funnel_stage(
+                automatic_recovery_allowed=bool(automatic_recovery_allowed),
+                escalated=final_outcome == "escalated",
+                executed=bool(
+                    execution is not None and execution.executed is True
+                ),
+                recovered_amount=recovered_amount,
+            )
+            report.funnel.raw += 1
+            report.funnel.needed_signal += int(stages["needed_signal"])
+            report.funnel.contacted += int(stages["contacted"])
+            report.funnel.confirmed_recovered += int(stages["confirmed_recovered"])
+
+            bucket_key = predicted_category or "unknown"
+            bucket = report.by_category.setdefault(
+                bucket_key, CategoryBreakdown()
+            )
+            bucket.count += 1
+            bucket.attempted_amount += attempted_amount
+            bucket.recovered_amount += recovered_amount
+            if recovered_amount > 0:
+                bucket.recovered_count += 1
+
             # 4. Check for False Automatic Recovery
             # If the pipeline allowed recovery, but the ground truth label suggests
             # it was unsafe (e.g. 'unknown', or if limits were exceeded).
@@ -191,6 +316,9 @@ class Evaluator:
                 EvaluationRecord(
                     event_id=event.event_id,
                     payment_id=event.razorpay_payment_id,
+                    attempted_amount=attempted_amount,
+                    recovered_amount=recovered_amount,
+                    payment_status=payment_status,
                     expected_failure_category=expected_category,
                     predicted_failure_category=predicted_category,
                     policy_action=(
@@ -210,5 +338,24 @@ class Evaluator:
             report.classification_accuracy = (
                 correct_classifications / total_classifications
             )
+
+        # Finalize money rates. Rate-by-amount is the headline: it weights a
+        # large recovered payment above a small one, which a count cannot.
+        if report.total_attempted_amount > 0:
+            report.recovery_rate_by_amount = (
+                report.total_recovered_amount / report.total_attempted_amount
+            )
+        if report.total_transactions > 0:
+            recovered_count = sum(
+                1 for r in report.records if r.recovered_amount > 0
+            )
+            report.recovery_rate_by_count = (
+                recovered_count / report.total_transactions
+            )
+        for bucket in report.by_category.values():
+            if bucket.attempted_amount > 0:
+                bucket.recovery_rate_amount = (
+                    bucket.recovered_amount / bucket.attempted_amount
+                )
 
         return report

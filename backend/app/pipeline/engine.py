@@ -8,7 +8,7 @@ Every component boundary fails safely.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from app.audit.result import AuditOutcome
 from app.audit.store import AuditLogger
@@ -17,8 +17,10 @@ from app.escalation.handler import EscalationHandler
 from app.executor.base import RecoveryExecutor
 from app.executor.result import ExecutionResult, ExecutionStatus
 from app.models.payment_event import FailedTransactionEvent
+from app.persistence.store import RecoveryStateStore
 from app.pipeline.result import PipelineResult
 from app.policy.engine import RecoveryPolicyEngine
+from app.policy.result import PolicyDecision
 from app.reasoning.engine import RecoveryReasoner
 from app.reasoning.result import ReasoningResult
 
@@ -41,6 +43,7 @@ class RecoveryPipeline:
         executor: RecoveryExecutor,
         escalation_handler: EscalationHandler,
         audit_logger: AuditLogger,
+        state_store: RecoveryStateStore | None = None,
     ) -> None:
         self.classifier = classifier
         self.policy_engine = policy_engine
@@ -48,6 +51,9 @@ class RecoveryPipeline:
         self.executor = executor
         self.escalation_handler = escalation_handler
         self.audit_logger = audit_logger
+        # When present, actions carrying a policy cooldown are persisted as
+        # scheduled jobs instead of running immediately.
+        self.state_store = state_store
 
     def process(self, payment_event: FailedTransactionEvent) -> PipelineResult:
         """Process a payment failure through the end-to-end workflow."""
@@ -104,8 +110,20 @@ class RecoveryPipeline:
 
             # 4. Execution
             if policy_decision and policy_decision.automatic_recovery_allowed:
+                cooldown = getattr(policy_decision, "cooldown_seconds", 0) or 0
+                defer = cooldown > 0 and self.state_store is not None
                 try:
-                    execution = self.executor.execute(payment_event, policy_decision)
+                    if defer:
+                        # The policy says wait. Persist the intent and report it
+                        # as scheduled — calling this "recovered" now would claim
+                        # money moved before any retry has run.
+                        execution = self._schedule(
+                            payment_event, policy_decision, cooldown, now
+                        )
+                    else:
+                        execution = self.executor.execute(
+                            payment_event, policy_decision
+                        )
                 except Exception as exc:
                     # Catastrophic executor failure (the executor itself raised
                     # rather than returning a structured result). Never leave
@@ -190,5 +208,41 @@ class RecoveryPipeline:
             audit_write=audit_write,
             final_outcome=final_outcome,
             error=error_msg,
+            timestamp=now,
+        )
+
+    def _schedule(
+        self,
+        payment_event: FailedTransactionEvent,
+        policy_decision: PolicyDecision,
+        cooldown_seconds: int,
+        now: datetime,
+    ) -> ExecutionResult:
+        """Persist a deferred recovery action and report it as SCHEDULED.
+
+        No money moves here. The scheduler worker executes the job once the
+        cooldown has elapsed.
+        """
+        eligible_at = now + timedelta(seconds=cooldown_seconds)
+        action = policy_decision.action.value
+        job_id = self.state_store.schedule_job(
+            payment_id=payment_event.razorpay_payment_id,
+            event_id=payment_event.event_id,
+            action=action,
+            next_eligible_at=eligible_at,
+            event_json=payment_event.model_dump_json(),
+        )
+        return ExecutionResult(
+            status=ExecutionStatus.SCHEDULED,
+            action_attempted=action,
+            payment_id=payment_event.razorpay_payment_id,
+            event_id=payment_event.event_id,
+            executed=False,
+            execution_id=job_id,
+            idempotency_key=f"scheduled:{payment_event.event_id}:{action}",
+            error=None,
+            reason=f"Scheduled for {eligible_at.isoformat()} ({cooldown_seconds}s cooldown)",
+            payment_status="not_attempted",
+            amount_recovered=0,
             timestamp=now,
         )

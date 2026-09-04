@@ -18,6 +18,9 @@ class ExecutionStatus(str, Enum):
     SUCCESS = "success"
     """The authorized action was executed successfully."""
 
+    SCHEDULED = "scheduled"
+    """The action is authorized but deferred until a cooldown elapses."""
+
     REJECTED = "rejected"
     """The executor refused to execute because the policy did not authorize it."""
 
@@ -94,6 +97,30 @@ class ExecutionResult(BaseModel):
     reason: str = Field(
         ...,
         description="Human-readable explanation of the execution outcome.",
+    )
+
+    payment_status: str | None = Field(
+        default=None,
+        description=(
+            "Simulated gateway payment status: 'captured', 'failed', or "
+            "'not_attempted'. None when no action was attempted."
+        ),
+    )
+
+    amount_recovered: int | None = Field(
+        default=None,
+        description=(
+            "Amount actually recovered, in paise. Only non-zero when the "
+            "simulated payment was captured. None when nothing was attempted."
+        ),
+    )
+
+    simulated: bool = Field(
+        default=True,
+        description=(
+            "Honesty flag: True means no real gateway was called. This stays "
+            "True for every executor in the current system."
+        ),
     )
 
     timestamp: datetime = Field(

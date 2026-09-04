@@ -84,7 +84,14 @@ def mock_reasoner():
 
 class TestDashboardProcess:
     def test_successful_recovery(self):
-        """1. Insufficient funds, attempt 1 → recovered."""
+        """1. Insufficient funds, attempt 1 -> scheduled, so pending.
+
+        Migrated for P2: the policy prescribes a 24h cooldown, so the retry
+        is scheduled rather than executed inline. Reporting this as
+        "recovered" would claim money moved before any retry ran. It becomes
+        recovered once the scheduler worker runs (see
+        test_scheduled_retry_recovers_after_worker_runs).
+        """
         payload = _make_event_payload(
             error_code="INSUFFICIENT_FUNDS",
             amount=149900,
@@ -99,8 +106,9 @@ class TestDashboardProcess:
         assert data["failure_category"] == "insufficient_funds"
         assert data["policy_action"] == "scheduled_retry"
         assert data["automatic_recovery_allowed"] is True
-        assert data["execution_status"] == "success"
-        assert data["final_outcome"] == "recovered"
+        assert data["execution_status"] == "scheduled"
+        assert data["final_outcome"] == "pending"
+        assert data["amount_recovered"] == 0
         assert data["amount"] == 149900
         assert data["attempt_number"] == 1
 
@@ -139,7 +147,12 @@ class TestDashboardProcess:
         assert data["final_outcome"] == "escalated"
 
     def test_failed_execution(self):
-        """4. Executor failure → execution_failed or escalated."""
+        """4. Executor failure → execution_failed or escalated.
+
+        Uses GATEWAY_ERROR (immediate retry, no cooldown) so the action
+        actually reaches the executor; an insufficient-funds retry is now
+        deferred and would never fail inline.
+        """
         # We need to make the mock executor fail
         from app.dashboard import _pipeline
 
@@ -150,7 +163,7 @@ class TestDashboardProcess:
             payload = _make_event_payload(
                 event_id="evt_dash_004",
                 payment_id="pay_dash_004",
-                error_code="INSUFFICIENT_FUNDS",
+                error_code="GATEWAY_ERROR",
                 amount=149900,
                 attempt=1,
             )
