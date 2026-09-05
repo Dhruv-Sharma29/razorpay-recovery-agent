@@ -1,9 +1,8 @@
 /**
  * Agent: what the model actually contributed.
  *
- * The model explains; it never decides. Every panel here is advisory
- * output attached to a decision the policy engine already made, and is
- * badged as model-generated or deterministic fallback.
+ * The model detects risk and recommends; it never authorizes. Every panel
+ * here keeps model output separate from the deterministic policy decision.
  */
 
 import ManualEntry from "../components/ManualEntry";
@@ -44,8 +43,9 @@ export default function Agent({
       <header className="view__header">
         <h1>Agent</h1>
         <p>
-          Advisory only — the model explains decisions the policy engine has
-          already made. It cannot authorize a payment, raise a limit, or
+          The model detects revenue at risk and recommends an intervention.
+          Deterministic policy validates the recommendation before anything
+          can execute; the model cannot authorize a payment, raise a limit, or
           suppress an escalation.
         </p>
       </header>
@@ -82,10 +82,10 @@ export default function Agent({
 
       {!result && !loading && !error && (
         <div className="empty-state" data-testid="agent-empty">
-          <div className="empty-state__title">Nothing to explain yet</div>
+          <div className="empty-state__title">Nothing to analyze yet</div>
           <div className="empty-state__description">
-            Process a sample failure to see the model's reasoning alongside
-            the deterministic decision it is explaining.
+            Process a sample failure to see the model's recommendation,
+            deterministic policy decision, and final outcome together.
           </div>
         </div>
       )}
@@ -125,6 +125,15 @@ export default function Agent({
             {result.reasoning_model && (
               <p className="agent__model data-mono">{result.reasoning_model}</p>
             )}
+            <p className="agent__model data-mono">
+              Recommendation: {result.recommendation_model ?? "fallback"}
+              {result.recommendation_latency_ms != null
+                ? ` · ${result.recommendation_latency_ms}ms`
+                : " · latency unavailable"}
+              {result.reasoning_latency_ms != null
+                ? ` · Explanation: ${result.reasoning_latency_ms}ms`
+                : " · explanation latency unavailable"}
+            </p>
           </section>
 
           <div className="agent__panels">

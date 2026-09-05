@@ -15,6 +15,7 @@ from app.escalation.result import EscalationResult
 from app.executor.result import ExecutionResult
 from app.models.payment_event import FailedTransactionEvent
 from app.policy.result import PolicyDecision
+from app.recommendation.result import RecoveryRecommendation
 from app.reasoning.result import ReasoningResult
 
 
@@ -33,6 +34,10 @@ class PipelineResult(BaseModel):
     classification: ClassificationResult | None = Field(
         default=None,
         description="Result from the failure classifier",
+    )
+    recommendation: RecoveryRecommendation | None = Field(
+        default=None,
+        description="AI risk and intervention recommendation, if requested",
     )
     policy_decision: PolicyDecision | None = Field(
         default=None,

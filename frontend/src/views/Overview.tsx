@@ -51,6 +51,18 @@ export default function Overview({
         </div>
       )}
 
+      {summary?.recommendation && (
+        <div className="banner banner--note" data-testid="overview-ai-summary">
+          AI advisor: <span className="data-mono">{summary.recommendation.model}</span>
+          {summary.recommendation.average_latency_ms
+            ? ` · ${Math.round(summary.recommendation.average_latency_ms)}ms average latency`
+            : " · latency unavailable"}
+          {summary.recommendation.mode === "skipped"
+            ? " · live recommendations skipped"
+            : " · live recommendations enabled"}
+        </div>
+      )}
+
       <KpiTiles summary={summary} />
 
       {!summary && !running && !error && (

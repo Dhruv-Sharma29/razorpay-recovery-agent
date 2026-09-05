@@ -24,6 +24,21 @@ export interface DashboardResult {
   failure_category: string | null;
   classification_reason: string | null;
 
+  // AI recommendation (advisory only; never authorization)
+  recommendation_success?: boolean | null;
+  revenue_at_risk?: boolean | null;
+  risk_score?: number | null;
+  ai_suggested_cause?: string | null;
+  ai_suggested_action?: string | null;
+  ai_confidence?: number | null;
+  recommendation_status?: string | null;
+  recommendation_reason?: string | null;
+  recommendation_model?: string | null;
+  recommendation_latency_ms?: number | null;
+  recommendation_prompt_version?: string | null;
+  recommendation_is_fallback?: boolean | null;
+  recommendation_fallback_reason?: string | null;
+
   // Policy (projected as-is from backend)
   policy_action: string | null;
   policy_reason: string | null;
@@ -51,6 +66,7 @@ export interface DashboardResult {
   // AI contribution — advisory only, cannot authorize anything
   reasoning_is_fallback?: boolean | null;
   reasoning_model?: string | null;
+  reasoning_latency_ms?: number | null;
   reasoning_fallback_reason?: string | null;
   root_cause_plain?: string | null;
   why_appropriate?: string | null;
@@ -75,6 +91,25 @@ export interface AuditRecord {
   timestamp: string;
   classification_category: string | null;
   classification_reason: string | null;
+  recommendation_success?: boolean | null;
+  revenue_at_risk?: boolean | null;
+  risk_score?: number | null;
+  ai_suggested_cause?: string | null;
+  ai_suggested_action?: string | null;
+  ai_confidence?: number | null;
+  recommendation_status?: string | null;
+  recommendation_reason?: string | null;
+  recommendation_model?: string | null;
+  recommendation_latency_ms?: number | null;
+  recommendation_prompt_version?: string | null;
+  recommendation_revenue_at_risk?: boolean | null;
+  recommendation_risk_score?: number | null;
+  recommendation_suggested_cause?: string | null;
+  recommendation_suggested_action?: string | null;
+  recommendation_confidence?: number | null;
+  recommendation_evidence?: string[];
+  recommendation_is_fallback?: boolean | null;
+  recommendation_fallback_reason?: string | null;
   policy_action: string | null;
   policy_reason: string | null;
   automatic_recovery_allowed: boolean | null;
@@ -145,6 +180,25 @@ export interface BatchReasoning {
    */
   overrode_policy: number;
   model: string;
+  prompt_version?: string | null;
+  schema_version?: string | null;
+  average_latency_ms?: number;
+}
+
+/** How the AI recommendation layer behaved during a batch. */
+export interface BatchRecommendation {
+  mode: "model" | "skipped";
+  consultations: number;
+  model_generated: number;
+  fallback: number;
+  risk_detected: number;
+  accepted: number;
+  constrained: number;
+  rejected: number;
+  unavailable: number;
+  model: string;
+  prompt_version?: string | null;
+  average_latency_ms?: number;
 }
 
 export interface SchedulerSummary {
@@ -177,6 +231,7 @@ export interface BatchSummary {
   by_scenario: ScenarioBreakdown[];
   audit_ids: string[];
   reasoning?: BatchReasoning;
+  recommendation?: BatchRecommendation;
   recovery_actions?: RecoveryActions;
   scheduler: SchedulerSummary | null;
   simulated?: boolean;

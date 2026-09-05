@@ -68,6 +68,29 @@ describe("AiContribution", () => {
     expect(card().getByText("0 cached, 3 fell back safely")).toBeInTheDocument();
   });
 
+  it("shows recommendation model version, latency, and policy treatment", () => {
+    const data = summary({});
+    data.recommendation = {
+      mode: "model",
+      consultations: 14,
+      model_generated: 12,
+      fallback: 2,
+      risk_detected: 10,
+      accepted: 8,
+      constrained: 3,
+      rejected: 1,
+      unavailable: 2,
+      model: "nvidia/nemotron-recommender",
+      prompt_version: "1.0.0",
+      average_latency_ms: 87,
+    };
+    render(<AiContribution summary={data} />);
+
+    expect(card().getByText("nvidia/nemotron-recommender")).toBeInTheDocument();
+    expect(card().getByText("87ms avg")).toBeInTheDocument();
+    expect(card().getByText("8 accepted · 3 constrained")).toBeInTheDocument();
+  });
+
   it("reports zero overrides and says why they cannot happen", () => {
     render(<AiContribution summary={summary({})} />);
     const tile = card().getByText("Policy overrides — must be 0").closest(".ai-metric");

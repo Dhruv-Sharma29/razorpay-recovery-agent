@@ -62,19 +62,19 @@ const CASES = [
 
 describe("Agent", () => {
   it("states the advisory boundary up front", () => {
-    render(<Agent result={null} loading={false} error={null} cases={CASES} onRunSample={noop} />);
+    render(<Agent result={null} loading={false} error={null} cases={CASES} onRunSample={noop} onRunGoldenPath={noop} />);
     expect(screen.getByText(/cannot authorize a payment/i)).toBeInTheDocument();
   });
 
   it("prompts for a sample before anything exists", () => {
-    render(<Agent result={null} loading={false} error={null} cases={CASES} onRunSample={noop} />);
+    render(<Agent result={null} loading={false} error={null} cases={CASES} onRunSample={noop} onRunGoldenPath={noop} />);
     expect(screen.getByTestId("agent-empty")).toBeInTheDocument();
   });
 
   it("runs the recoverable sample on demand", () => {
     const onRunSample = vi.fn();
     render(
-      <Agent result={null} loading={false} error={null} cases={CASES} onRunSample={onRunSample} />,
+      <Agent result={null} loading={false} error={null} cases={CASES} onRunSample={onRunSample} onRunGoldenPath={noop} />,
     );
     fireEvent.click(screen.getByTestId("agent-case-recoverable"));
     expect(onRunSample).toHaveBeenCalledTimes(1);
@@ -83,7 +83,7 @@ describe("Agent", () => {
   it("offers the adversarial cases so refusals can be demonstrated", () => {
     const onRunSample = vi.fn();
     render(
-      <Agent result={null} loading={false} error={null} cases={CASES} onRunSample={onRunSample} />,
+      <Agent result={null} loading={false} error={null} cases={CASES} onRunSample={onRunSample} onRunGoldenPath={noop} />,
     );
     expect(screen.getByTestId("agent-case-over-cap")).toBeInTheDocument();
     expect(screen.getByTestId("agent-case-retry-limit")).toBeInTheDocument();
@@ -95,7 +95,7 @@ describe("Agent", () => {
 
   it("badges model-generated output", () => {
     render(
-      <Agent result={result()} loading={false} error={null} cases={CASES} onRunSample={noop} />,
+      <Agent result={result()} loading={false} error={null} cases={CASES} onRunSample={noop} onRunGoldenPath={noop} />,
     );
     expect(screen.getByTestId("reasoning-source-badge")).toHaveTextContent(
       "Model generated",
@@ -108,7 +108,7 @@ describe("Agent", () => {
         result={result({ reasoning_is_fallback: true })}
         loading={false}
         error={null}
-        cases={CASES} onRunSample={noop}
+        cases={CASES} onRunSample={noop} onRunGoldenPath={noop}
       />,
     );
     expect(screen.getByTestId("reasoning-source-badge")).toHaveTextContent(
@@ -118,7 +118,7 @@ describe("Agent", () => {
 
   it("shows the model's plain-language contribution", () => {
     render(
-      <Agent result={result()} loading={false} error={null} cases={CASES} onRunSample={noop} />,
+      <Agent result={result()} loading={false} error={null} cases={CASES} onRunSample={noop} onRunGoldenPath={noop} />,
     );
     expect(screen.getByText("The gateway timed out.")).toBeInTheDocument();
     expect(
@@ -132,7 +132,7 @@ describe("Agent", () => {
         result={result({ customer_message: null })}
         loading={false}
         error={null}
-        cases={CASES} onRunSample={noop}
+        cases={CASES} onRunSample={noop} onRunGoldenPath={noop}
       />,
     );
     expect(
@@ -142,7 +142,7 @@ describe("Agent", () => {
 
   it("reports the measured amount as simulated", () => {
     render(
-      <Agent result={result()} loading={false} error={null} cases={CASES} onRunSample={noop} />,
+      <Agent result={result()} loading={false} error={null} cases={CASES} onRunSample={noop} onRunGoldenPath={noop} />,
     );
     // The rail also shows the amount, so scope to the measured-result card.
     const measured = screen.getByText("Measured result").closest(".card");
@@ -152,7 +152,7 @@ describe("Agent", () => {
 
   it("surfaces a processing failure", () => {
     render(
-      <Agent result={null} loading={false} error="boom" cases={CASES} onRunSample={noop} />,
+      <Agent result={null} loading={false} error="boom" cases={CASES} onRunSample={noop} onRunGoldenPath={noop} />,
     );
     expect(screen.getByRole("alert")).toHaveTextContent("boom");
   });

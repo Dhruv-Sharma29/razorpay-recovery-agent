@@ -40,7 +40,9 @@ from app.policy.result import (
     EscalationReason,
     PolicyAction,
     PolicyDecision,
+    RecommendationStatus,
 )
+from app.recommendation.result import RecoveryRecommendation
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -166,6 +168,7 @@ class RecoveryPolicyEngine:
         self,
         payment_event: FailedTransactionEvent,
         classification: ClassificationResult | None,
+        recommendation: RecoveryRecommendation | None = None,
     ) -> PolicyDecision:
         """Evaluate a payment event against recovery policy.
 
@@ -174,7 +177,8 @@ class RecoveryPolicyEngine:
             classification: The classifier's result, or None if missing.
 
         Returns:
-            A PolicyDecision with the prescribed action.
+            A PolicyDecision with the prescribed action. The optional model
+            recommendation is only evaluated as an untrusted candidate.
 
         The original payment_event is never mutated.
         """
@@ -286,6 +290,12 @@ class RecoveryPolicyEngine:
             amount=amount,
             cooldown_seconds=cat_policy.cooldown_seconds,
             amount_limit=self._amount_limit,
+            recommendation_status=self._recommendation_status(
+                recommendation, category, cat_policy
+            )[0],
+            recommendation_reason=self._recommendation_status(
+                recommendation, category, cat_policy
+            )[1],
         )
 
     # --- Internal helpers ---
@@ -314,4 +324,39 @@ class RecoveryPolicyEngine:
             current_attempt=attempt,
             amount=amount,
             amount_limit=self._amount_limit,
+        )
+
+    @staticmethod
+    def _recommendation_status(
+        recommendation: RecoveryRecommendation | None,
+        category: FailureCategory,
+        category_policy: _CategoryPolicy,
+    ) -> tuple[RecommendationStatus, str]:
+        """Classify an advisory recommendation without changing policy output."""
+        if recommendation is None or not recommendation.success:
+            return (
+                RecommendationStatus.UNAVAILABLE,
+                "No live AI recommendation was available; deterministic policy used",
+            )
+        if recommendation.suggested_cause != category:
+            return (
+                RecommendationStatus.REJECTED,
+                "AI cause did not match the independently verified failure category",
+            )
+        if recommendation.suggested_action is None:
+            return (
+                RecommendationStatus.REJECTED,
+                "AI did not provide a candidate action",
+            )
+        if recommendation.suggested_action != category_policy.action:
+            return (
+                RecommendationStatus.CONSTRAINED,
+                (
+                    f"AI suggested {recommendation.suggested_action.value}; policy "
+                    f"constrained the action to {category_policy.action.value}"
+                ),
+            )
+        return (
+            RecommendationStatus.ACCEPTED,
+            "AI recommendation matched the independently verified policy action",
         )

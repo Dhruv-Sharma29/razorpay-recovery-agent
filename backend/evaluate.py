@@ -2,11 +2,13 @@
 """Run evaluation against synthetic and held-out data (TASK-010)."""
 
 import json
+import argparse
 from pathlib import Path
 from unittest.mock import patch
 
 from app.evaluation.harness import Evaluator, EvaluationReport
 from app.reasoning.engine import RecoveryReasoner
+from app.recommendation.engine import RecoveryRecommender
 
 
 def _rupees(paise: int) -> str:
@@ -27,6 +29,11 @@ def print_report(report: EvaluationReport) -> None:
     print(f"Execution Failures:        {report.execution_failure_count}")
     print(f"Unknown/Unsafe count:      {report.unknown_unsafe_count}")
     print(f"False Auto-Recoveries:     {report.false_automatic_recovery_count}")
+    print(f"Risk Precision / Recall:   {report.risk_detection_precision if report.risk_detection_precision is not None else 'n/a'} / {report.risk_detection_recall if report.risk_detection_recall is not None else 'n/a'}")
+    print(f"AI Recommendations:        model={report.recommendation_model_generated_count}, fallback={report.recommendation_fallback_count}")
+    print(f"Recommendation Treatment:   {report.recommendation_status_counts or 'none'}")
+    print(f"Policy Isolation:           {'PASS' if report.policy_isolation_passed else 'FAIL'} ({report.policy_isolation_violation_count} violations)")
+    print(f"False Escalation Cost:      {_rupees(report.false_escalation_cost)} ({report.false_escalation_count} cases)")
 
     print(f"\n{'-'*50}")
     print("MONEY RECOVERED (simulated executor, test mode)")
@@ -70,6 +77,13 @@ def mock_reasoning_analyze(self, event, classification, policy_decision):
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Evaluate synthetic and held-out recovery data")
+    parser.add_argument(
+        "--with-ai",
+        action="store_true",
+        help="Call configured NVIDIA NIM for recommendations; otherwise use safe fallbacks",
+    )
+    args = parser.parse_args()
     root_dir = Path(__file__).parent.parent
     synthetic_path = root_dir / "data" / "synthetic" / "failed_transactions.json"
     held_out_path = root_dir / "data" / "held_out" / "failed_transactions.json"
@@ -78,7 +92,9 @@ def main():
 
     # Patch the reasoning engine so we don't spam the NIM API
     with patch.object(RecoveryReasoner, "analyze", mock_reasoning_analyze):
-        evaluator = Evaluator()
+        evaluator = Evaluator(
+            recommender=RecoveryRecommender() if args.with_ai else None
+        )
         
         # 1. Synthetic Data
         print("Evaluating synthetic dataset...")

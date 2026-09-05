@@ -40,6 +40,9 @@ logger = logging.getLogger(__name__)
 # unreachable NIM endpoint fails over to the deterministic fallback quickly.
 _DEFAULT_TIMEOUT = 15.0
 
+_PROMPT_VERSION = "1.0.0"
+_SCHEMA_VERSION = "1.0.0"
+
 
 # ---------------------------------------------------------------------------
 # System prompt — instructs the NIM model about its role and constraints.
@@ -464,12 +467,15 @@ class RecoveryReasoner:
         }
 
         try:
+            import time
+            start_time = time.perf_counter()
             response = self._client.post(
                 f"{self._base_url}/chat/completions",
                 headers=headers,
                 json=payload,
             )
             response.raise_for_status()
+            latency_ms = int((time.perf_counter() - start_time) * 1000)
             raw_body = response.json()
         except httpx.TimeoutException:
             logger.warning("NIM request timed out after %.1fs", self._timeout)
@@ -511,7 +517,12 @@ class RecoveryReasoner:
         result = _parse_nim_response(
             raw_body, policy_decision, self._model, classification=classification
         )
-        
+
+        if result.success:
+            result.prompt_version = _PROMPT_VERSION
+            result.schema_version = _SCHEMA_VERSION
+            result.latency_ms = latency_ms
+
         # Cache successful results (the cache.put method itself skips failures)
         self.cache.put(payment_event, classification, policy_decision, result)
         

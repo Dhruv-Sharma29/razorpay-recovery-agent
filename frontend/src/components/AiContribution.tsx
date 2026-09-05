@@ -14,9 +14,10 @@ interface AiContributionProps {
 
 export default function AiContribution({ summary }: AiContributionProps) {
   const r = summary?.reasoning;
+  const rec = summary?.recommendation;
   if (!summary || !r) return null;
 
-  const skipped = r.mode === "skipped";
+  const skipped = r.mode === "skipped" && (!rec || rec.mode === "skipped");
 
   return (
     <>
@@ -61,14 +62,62 @@ export default function AiContribution({ summary }: AiContributionProps) {
               withheld when they name amounts or promise an outcome
             </span>
           </div>
+
+          {rec && (
+            <>
+              <div className="ai-metric">
+                <span className="ai-metric__label">Recommendation model</span>
+                <span className="ai-metric__value data-mono">
+                  {rec.model}
+                </span>
+                <span className="ai-metric__note">
+                  Prompt: {rec.prompt_version || "—"}
+                </span>
+              </div>
+
+              <div className="ai-metric ai-metric--telemetry">
+                <span className="ai-metric__label">Recommendation latency</span>
+                <span className="ai-metric__value data-mono">
+                  {rec.average_latency_ms
+                    ? `${Math.round(rec.average_latency_ms)}ms avg`
+                    : "—"}
+                </span>
+                <span className="ai-metric__note">
+                  {rec.model_generated} live · {rec.fallback} fallback
+                </span>
+              </div>
+
+              <div className="ai-metric">
+                <span className="ai-metric__label">Policy treatment</span>
+                <span className="ai-metric__value data-mono">
+                  {rec.accepted} accepted · {rec.constrained} constrained
+                </span>
+                <span className="ai-metric__note">
+                  {rec.rejected} rejected · {rec.unavailable} unavailable
+                </span>
+              </div>
+            </>
+          )}
+
+          {r && !skipped && (
+            <div className="ai-metric ai-metric--telemetry">
+              <span className="ai-metric__label">Model Telemetry</span>
+              <span className="ai-metric__value data-mono">
+                {r.average_latency_ms ? `${Math.round(r.average_latency_ms)}ms avg` : "—"}
+              </span>
+              <span className="ai-metric__note">
+                Prompt: {r.prompt_version || "—"} / Schema: {r.schema_version || "—"}
+              </span>
+            </div>
+          )}
         </div>
 
         {skipped && (
           <p className="ai-card__note">
-            This batch ran without live reasoning, so every consultation used
-            the deterministic fallback. Reasoning is advisory and changes no
-            outcome or amount — enable it in Run options for a smaller batch to
-            see real model text.
+            This batch ran without live reasoning or recommendation NIM calls, so recommendations and
+            explanations used deterministic fallbacks. AI is advisory and
+            changes no outcome or amount — enable it in Run options for a
+            smaller batch to see real model text.
           </p>
         )}
       </section>

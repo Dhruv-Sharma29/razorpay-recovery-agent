@@ -7,8 +7,11 @@
  * No policy logic — only display.
  */
 
+import { useMemo, useState } from "react";
 import type { AuditRecord } from "../types/dashboard";
 import StatusBadge from "./StatusBadge";
+import PendingRetryCountdown from "./PendingRetryCountdown";
+import { humanize } from "../utils/format";
 
 interface AuditLogProps {
   records: AuditRecord[];
@@ -23,18 +26,56 @@ export default function AuditLog({
   error,
   onRefresh,
 }: AuditLogProps) {
+  const [outcome, setOutcome] = useState<string>("all");
+  const [category, setCategory] = useState<string>("all");
+
+  const categories = useMemo(
+    () => Array.from(new Set(records.map((r) => r.classification_category ?? "unknown"))).sort(),
+    [records]
+  );
+
+  const filtered = useMemo(
+    () => records.filter((r) =>
+      (outcome === "all" || r.final_outcome === outcome) &&
+      (category === "all" || (r.classification_category ?? "unknown") === category)
+    ),
+    [records, outcome, category]
+  );
   return (
     <div className="audit-log" data-testid="audit-log">
       <div className="card">
         <div className="audit-log__header">
-          <h2 className="card-title">Audit Trail</h2>
-          <button
-            className="btn btn--ghost"
-            onClick={onRefresh}
-            disabled={loading}
-          >
-            {loading ? "Loading…" : "Refresh"}
-          </button>
+          <div className="audit-log__title-row">
+            <h2 className="card-title">Audit Trail</h2>
+            <button
+              className="btn btn--ghost"
+              onClick={onRefresh}
+              disabled={loading}
+            >
+              {loading ? "Loading…" : "Refresh"}
+            </button>
+          </div>
+          
+          <div className="audit-log__filters">
+            <label>
+              <span>Outcome</span>
+              <select value={outcome} onChange={(e) => setOutcome(e.target.value)}>
+                <option value="all">All outcomes</option>
+                {["recovered", "pending", "escalated", "denied", "execution_failed", "recorded"].map(o => (
+                  <option key={o} value={o}>{humanize(o)}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Category</span>
+              <select value={category} onChange={(e) => setCategory(e.target.value)}>
+                <option value="all">All categories</option>
+                {categories.map((c) => (
+                  <option key={c} value={c}>{humanize(c)}</option>
+                ))}
+              </select>
+            </label>
+          </div>
         </div>
 
         {error && (
@@ -61,7 +102,16 @@ export default function AuditLog({
           </div>
         )}
 
-        {records.length > 0 && (
+        {records.length > 0 && filtered.length === 0 && (
+          <div className="empty-state" data-testid="audit-empty-filters">
+            <div className="empty-state__title">No matching records</div>
+            <div className="empty-state__description">
+              Try changing your category or outcome filters.
+            </div>
+          </div>
+        )}
+
+        {filtered.length > 0 && (
           <div className="audit-table-wrapper">
             <table className="audit-table">
               <thead>
@@ -75,14 +125,22 @@ export default function AuditLog({
                 </tr>
               </thead>
               <tbody>
-                {records.map((record) => (
+                {filtered.map((record) => (
                   <tr key={record.audit_id}>
                     <td className="mono">{record.event_id}</td>
                     <td className="mono">{record.payment_id}</td>
                     <td>{record.classification_category ?? "—"}</td>
                     <td>{record.policy_action ?? "—"}</td>
                     <td>
-                      <StatusBadge outcome={record.final_outcome} />
+                      <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem", alignItems: "flex-start" }}>
+                        <StatusBadge outcome={record.final_outcome} />
+                        {record.final_outcome === "pending" && record.scheduled_for && (
+                          <PendingRetryCountdown
+                            scheduledFor={record.scheduled_for}
+                            auditId={record.audit_id}
+                          />
+                        )}
+                      </div>
                     </td>
                     <td className="data-mono">{record.timestamp}</td>
                   </tr>

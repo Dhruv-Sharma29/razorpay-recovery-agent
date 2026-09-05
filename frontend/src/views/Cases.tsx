@@ -5,13 +5,23 @@
  * reviewer can audit one row without replaying the pipeline.
  */
 
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 
 import StatusBadge from "../components/StatusBadge";
+import PendingRetryCountdown from "../components/PendingRetryCountdown";
 import type { AuditRecord, FinalOutcome } from "../types/dashboard";
 import { formatRupees, humanize } from "../utils/format";
 
 const PAGE_SIZE = 15;
+const OUTCOME_OPTIONS: FinalOutcome[] = [
+  "recovered",
+  "pending",
+  "escalated",
+  "denied",
+  "execution_failed",
+  "recorded",
+  "audit_failed",
+];
 
 interface CasesProps {
   records: AuditRecord[];
@@ -71,7 +81,7 @@ export default function Cases({ records, loading, error, onRefresh }: CasesProps
             data-testid="filter-outcome"
           >
             <option value="all">All outcomes</option>
-            {["recovered", "pending", "escalated", "denied", "execution_failed"].map(
+            {OUTCOME_OPTIONS.map(
               (o) => (
                 <option key={o} value={o}>
                   {humanize(o)}
@@ -147,6 +157,12 @@ export default function Cases({ records, loading, error, onRefresh }: CasesProps
                       <td>{r.policy_action ?? "—"}</td>
                       <td>
                         <StatusBadge outcome={r.final_outcome as FinalOutcome} />
+                        {r.final_outcome === "pending" && r.scheduled_for && (
+                          <PendingRetryCountdown
+                            scheduledFor={r.scheduled_for}
+                            auditId={r.audit_id}
+                          />
+                        )}
                       </td>
                       <td className="data-mono">
                         {formatRupees(r.amount_recovered ?? 0)}
@@ -214,6 +230,53 @@ function ChainDetail({ record }: { record: AuditRecord }) {
       }`,
     },
     {
+      label: "AI recommendation",
+      value: [
+        record.recommendation_suggested_cause
+          ? humanize(record.recommendation_suggested_cause)
+          : null,
+        record.recommendation_suggested_action
+          ? humanize(record.recommendation_suggested_action)
+          : null,
+        record.recommendation_status
+          ? humanize(record.recommendation_status)
+          : "unavailable",
+      ]
+        .filter(Boolean)
+        .join(" · "),
+    },
+    {
+      label: "AI telemetry",
+      value: [
+        record.recommendation_revenue_at_risk === true
+          ? "revenue at risk"
+          : record.recommendation_revenue_at_risk === false
+            ? "not marked at risk"
+            : null,
+        record.recommendation_risk_score != null
+          ? `risk ${Math.round(record.recommendation_risk_score * 100)}%`
+          : null,
+        record.recommendation_confidence != null
+          ? `confidence ${Math.round(record.recommendation_confidence * 100)}%`
+          : null,
+        record.recommendation_latency_ms != null
+          ? `${record.recommendation_latency_ms}ms`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(" · ") || "—",
+    },
+    {
+      label: "AI model",
+      value: record.recommendation_model
+        ? `${record.recommendation_model}${
+            record.recommendation_prompt_version
+              ? ` · prompt ${record.recommendation_prompt_version}`
+              : ""
+          }`
+        : "—",
+    },
+    {
       label: "Rule",
       value: record.policy_rule_id ?? "—",
     },
@@ -256,6 +319,16 @@ function ChainDetail({ record }: { record: AuditRecord }) {
         <div className="chain__step">
           <span className="chain__label">Scheduled for</span>
           <span className="chain__value data-mono">{record.scheduled_for}</span>
+        </div>
+      )}
+      {record.final_outcome === "pending" && record.scheduled_for && (
+        <div className="chain__step">
+          <span className="chain__label">Retry countdown</span>
+          <PendingRetryCountdown
+            scheduledFor={record.scheduled_for}
+            auditId={record.audit_id}
+            inline
+          />
         </div>
       )}
       {record.escalation_trigger && (

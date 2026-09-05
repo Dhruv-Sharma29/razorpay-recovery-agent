@@ -38,6 +38,15 @@ class EscalationReason(str, Enum):
     UNSAFE_CONDITION = "unsafe_condition"
 
 
+class RecommendationStatus(str, Enum):
+    """How policy treated the model's advisory recommendation."""
+
+    ACCEPTED = "accepted"
+    CONSTRAINED = "constrained"
+    REJECTED = "rejected"
+    UNAVAILABLE = "unavailable"
+
+
 class PolicyDecision(BaseModel):
     """Result of a recovery policy evaluation.
 
@@ -96,4 +105,15 @@ class PolicyDecision(BaseModel):
     amount_limit: int = Field(
         ...,
         description="Configured automatic recovery amount limit in paise",
+    )
+    recommendation_status: RecommendationStatus = Field(
+        default=RecommendationStatus.UNAVAILABLE,
+        description=(
+            "Whether an AI recommendation was accepted, constrained, rejected, "
+            "or unavailable; this field never grants authority"
+        ),
+    )
+    recommendation_reason: str | None = Field(
+        default=None,
+        description="Deterministic explanation of how policy treated the recommendation",
     )

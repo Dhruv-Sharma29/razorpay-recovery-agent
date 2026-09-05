@@ -2,21 +2,20 @@
 
 **A focused revenue-recovery agent for failed payments and subscription renewals.**
 
-![backend tests](https://img.shields.io/badge/backend%20tests-425%20passing-brightgreen)
-![frontend tests](https://img.shields.io/badge/frontend%20tests-74%20passing-brightgreen)
-![python](https://img.shields.io/badge/python-3.10%2B-blue)
-![react](https://img.shields.io/badge/react-19-149eca)
-![license](https://img.shields.io/badge/mode-test--mode-lightgrey)
+![python](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)
+![fastapi](https://img.shields.io/badge/API-FastAPI-009688?logo=fastapi&logoColor=white)
+![react](https://img.shields.io/badge/frontend-React%2019-149eca?logo=react&logoColor=white)
+![executor](https://img.shields.io/badge/default%20executor-simulated-lightgrey)
 
-A safety-first recovery pipeline for failed Razorpay-style payment events. The system classifies failures with deterministic rules, evaluates bounded recovery policy, asks NVIDIA NIM (Nemotron) for an explanation, executes only policy-approved actions in a sandbox executor, and appends every result to a SQLite audit log for the React dashboard.
+A safety-first AI-assisted recovery pipeline for failed Razorpay-style payment events. The system asks NVIDIA NIM (Nemotron) to detect revenue at risk and recommend a candidate intervention, independently classifies failures with deterministic rules, validates the recommendation through bounded recovery policy, executes only policy-approved actions in a sandbox executor, and appends every result to a SQLite audit log for the React dashboard.
 
-> **Rules decide. Nemotron explains. The executor acts. The audit log records.**
+> **Nemotron detects and recommends. Rules constrain and authorize. The executor acts. The audit log records.**
 
 ## Demo
 
-<!-- Once recorded, drop the file at docs/demo.gif and uncomment:
 ![Reflow recovery console](docs/demo.gif)
--->
+
+When the frontend is served behind a trusted proxy that supplies the API key, the fastest browser demo is the dashboard's **Run golden path** action. It creates a fresh, below-cap insufficient-funds event and sends it through the complete pipeline.
 
 ## Current implementation status
 
@@ -24,10 +23,15 @@ The golden path is implemented end to end with synthetic/Razorpay-shaped events:
 
 ```text
 payment event → rules-first classification → bounded policy decision
-→ Nemotron explanation (or safe fallback) → mock execution → escalation/audit → dashboard
+→ AI risk recommendation → rules-first classification → bounded policy gate
+→ Nemotron explanation (or safe fallback) → simulated execution → escalation/audit → dashboard
 ```
 
-The current `MockExecutor` simulates recovery and does not call Razorpay. Razorpay credentials are reserved in `.env.example` for a future adapter; no secrets are required to run the current demo or test suite.
+The default `SimulatedPaymentExecutor` (also available as the backwards-compatible `MockExecutor`) makes no network calls. Authorized actions are reported as simulated captures so the demo can measure recovered amount without touching a payment gateway.
+
+An opt-in `RazorpayTestExecutor` is included. Set `EXECUTOR_MODE=razorpay_test` only with Razorpay test keys. The adapter refuses non-test key IDs (`rzp_test_`) and re-checks the configured amount cap before making a request. It is a sandbox integration for this project, not a production payment adapter.
+
+NIM is optional. Without `NIM_API_KEY`, the pipeline remains fully usable and records a deterministic, policy-grounded fallback explanation.
 
 ## Architecture
 
@@ -38,6 +42,12 @@ The current `MockExecutor` simulates recovery and does not call Razorpay. Razorp
                        ┌────────────────────┐
                        │ Ingestion / Pydantic│
                        │ event validation    │
+                       └──────────┬─────────┘
+                                  ▼
+                       ┌────────────────────┐
+                       │ RecoveryRecommender│
+                       │ Nemotron via NIM   │
+                       │ advisory candidate │
                        └──────────┬─────────┘
                                   ▼
                        ┌────────────────────┐
@@ -54,14 +64,14 @@ The current `MockExecutor` simulates recovery and does not call Razorpay. Razorp
                  ▼                           ▼
        ┌────────────────────┐      ┌──────────────────┐
        │ RecoveryReasoner   │      │ EscalationHandler│
-       │ Nemotron via NIM   │      │ fail-closed      │
+       │ final explanation  │      │ fail-closed      │
        │ explanation only   │      └────────┬─────────┘
        └──────────┬─────────┘               │
                   └──────────────┬─────────┘
                                  ▼
                        ┌────────────────────┐
                        │ RecoveryExecutor   │
-                       │ MockExecutor today │
+                       │ simulated or test  │
                        └──────────┬─────────┘
                                   ▼
                        ┌────────────────────┐
@@ -81,7 +91,7 @@ Every event is traceable as:
 CAUSE → RULE → BOUND → ACTION → OUTCOME
 ```
 
-Nemotron receives the event, classification, and already-computed policy decision. Its output is display-only. If the NIM API is unavailable, times out, or returns malformed JSON, the reasoner creates a deterministic fallback without changing the policy decision.
+Nemotron receives the normalized event and deterministic evidence to produce an advisory risk/recommendation result, then receives the final policy decision to explain it. Its recommendation is untrusted and cannot authorize execution. If NIM is unavailable, times out, or returns malformed JSON, the pipeline uses deterministic fallback data without changing the policy decision.
 
 ## Failure taxonomy
 
@@ -118,6 +128,8 @@ Global guards are enforced by `RecoveryPolicyEngine`:
 
 ## API
 
+`GET /health` is public. All `/api/dashboard/*` routes require the `X-API-Key` header matching `API_SECRET_KEY`.
+
 Start the backend from the `backend/` directory. It exposes:
 
 | Method | Endpoint | Purpose |
@@ -125,10 +137,14 @@ Start the backend from the `backend/` directory. It exposes:
 | `GET` | `/health` | Service health check |
 | `POST` | `/api/dashboard/process` | Process one validated payment event |
 | `GET` | `/api/dashboard/audit` | Read the append-only audit records |
+| `GET` | `/api/dashboard/audit/export` | Export the audit log as CSV |
 | `POST` | `/api/dashboard/run-batch` | Process N fresh synthetic failures and report measured recovery |
 | `POST` | `/api/dashboard/run-scheduled` | Execute deferred retries whose cooldown has elapsed (`?now=` to skip the wait) |
 | `GET` | `/api/dashboard/scheduled` | List scheduled retry jobs |
 | `GET` | `/api/dashboard/risk` | Revenue-at-risk rollups by merchant, repeat customer, and subscription |
+| `GET` | `/api/dashboard/telemetry` | Recovery, fallback, cache, and latency metrics |
+| `GET` | `/api/dashboard/provider` | NIM provider/model status without exposing the API key |
+| `POST` | `/api/dashboard/golden-path` | Run a fresh insufficient-funds demo event |
 | `POST` | `/api/dashboard/reset` | Clear recovery state for a clean demo. Never clears audit history |
 
 Amounts are supplied in the smallest currency unit (for INR, paise). A minimal request looks like:
@@ -156,6 +172,8 @@ The submitted `failure_category` is part of the validated event schema; the back
 
 Audit records persist to `DATABASE_URL` (default `sqlite:///./recovery.db`), so they survive a backend restart. `GET /api/dashboard/audit` supports pagination and filtering: `?limit=&offset=` page the log (omit `limit` to return all) and `?outcome=recovered` filters by final outcome; the response includes `count` (this page) and `total` (all matching records).
 
+`POST /api/dashboard/run-batch` accepts `count` from 1 to 500. Use `seed=` for a reproducible synthetic batch, `run_scheduler=true` to complete deferred retries before measuring, and `explain=true` to make live NIM calls for each event. Batch AI recommendations and explanations are skipped by default because they are advisory and do not affect recovery metrics.
+
 ## Quick start
 
 ### Backend
@@ -164,12 +182,32 @@ Audit records persist to `DATABASE_URL` (default `sqlite:///./recovery.db`), so 
 cd backend
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 cp .env.example .env
-uvicorn app.main:app --reload
 ```
 
-NIM is optional for the pipeline: without a reachable NIM API, Nemotron explanations become safe deterministic fallbacks. To use live explanations, set `NIM_API_KEY` and ensure the model named by `NIM_MODEL` is available on the NIM catalog.
+For a protected local API, add a development-only secret to `backend/.env`:
+
+```dotenv
+API_SECRET_KEY=local-dev-secret
+EXECUTOR_MODE=mock
+```
+
+Start FastAPI:
+
+```bash
+uvicorn app.main:app --reload --port 8000
+```
+
+NIM is optional for the pipeline: without a reachable NIM API, AI recommendations and explanations become safe deterministic fallbacks. To use live recommendations and explanations, set `NIM_API_KEY` and ensure the model named by `NIM_MODEL` is available on the NIM catalog.
+
+The API key must be sent as `X-API-Key` on dashboard requests. For example:
+
+```bash
+curl -s http://localhost:8000/health
+curl -s -X POST http://localhost:8000/api/dashboard/golden-path \
+  -H "X-API-Key: local-dev-secret"
+```
 
 ### Frontend
 
@@ -182,6 +220,8 @@ npm run dev
 ```
 
 Open the Vite URL shown in the terminal (normally `http://localhost:5173`). The frontend calls `http://localhost:8000` by default. Set `VITE_API_BASE` if the backend is hosted elsewhere.
+
+The current frontend API client does not embed or send `API_SECRET_KEY`. To use the browser dashboard against the protected API, keep the key server-side and add the header at a trusted reverse proxy or other server-side boundary; do not put a production API secret in a public Vite bundle. Direct CLI/API requests should use the `curl` pattern above.
 
 ## Demo and evaluation
 
@@ -217,7 +257,7 @@ Backend tests:
 
 ```bash
 cd backend
-pytest
+python -m pytest -q
 ```
 
 Frontend tests and production build:
@@ -228,7 +268,27 @@ npm test
 npm run build
 ```
 
-The test suite covers classification, every policy rule, stopping rules, fail-closed behavior, reasoning fallbacks and policy isolation, execution idempotency, audit persistence/redaction, API health, pipeline integration, dashboard rendering, and security hardening.
+The test suite covers classification and precedence, every policy rule and stopping rule, fail-closed behavior, reasoning fallbacks and policy isolation, executor idempotency, scheduler behavior, audit persistence/redaction, API validation and authentication, pipeline integration, dashboard rendering, evaluation metrics, and security hardening.
+
+## Verification
+
+Last verified locally on 2026-09-04:
+
+- Backend: 453 tests passed; 2 deselected
+- Frontend: 112 tests passed
+- Production build: successful
+- `git diff --check`: clean
+
+Run the checks again from a clean checkout with:
+
+```bash
+cd backend
+python -m pytest -q
+
+cd ../frontend
+npm test
+npm run build
+```
 
 ## Project structure
 
@@ -237,15 +297,20 @@ The test suite covers classification, every policy rule, stopping rules, fail-cl
 ├── backend/
 │   ├── app/
 │   │   ├── audit/          # append-only SQLite audit store
+│   │   ├── auth.py         # API-key protection for dashboard routes
 │   │   ├── classifier/     # deterministic failure taxonomy
 │   │   ├── escalation/     # human-review/fail-closed handling
 │   │   ├── evaluation/     # synthetic and held-out evaluation
-│   │   ├── executor/       # executor contract and MockExecutor
+│   │   ├── executor/       # executor contract and simulated executor
 │   │   ├── ingestion/      # event generator and loader
 │   │   ├── models/         # Pydantic payment-event schema
+│   │   ├── persistence/    # durable retry/idempotency state
 │   │   ├── pipeline/       # end-to-end orchestration
 │   │   ├── policy/         # authoritative bounded policy engine
+│   │   ├── razorpay/       # opt-in Razorpay test-mode adapter
+│   │   ├── recommendation/ # Nemotron/NIM risk advisor and fallback
 │   │   ├── reasoning/      # Nemotron/NIM explainer and fallback
+│   │   ├── scheduler/      # deferred retry worker
 │   │   ├── dashboard.py    # FastAPI dashboard endpoints
 │   │   └── main.py         # FastAPI application
 │   ├── tests/
@@ -270,8 +335,13 @@ NIM_BASE_URL=https://integrate.api.nvidia.com/v1
 NIM_MODEL=nvidia/nemotron-3-nano-omni-30b-a3b-reasoning
 DATABASE_URL=sqlite:///./recovery.db
 AUTO_RECOVERY_AMOUNT_LIMIT=500000
+EXECUTOR_MODE=mock
+ENVIRONMENT=development
+API_SECRET_KEY=local-dev-secret
 CORS_ALLOW_ORIGINS=http://localhost:5173,http://localhost:3000
 ```
+
+`EXECUTOR_MODE=mock` keeps the demo offline. Use `razorpay_test` only with test credentials; the adapter refuses key IDs that do not begin with `rzp_test_`. `API_SECRET_KEY` protects all dashboard routes and must be sent as `X-API-Key`.
 
 Do not commit `.env` files, Razorpay credentials, or model/API tokens. The audit logger recursively redacts credential-like fields before persistence.
 
@@ -279,11 +349,12 @@ Do not commit `.env` files, Razorpay credentials, or model/API tokens. The audit
 
 The project intentionally keeps authorization deterministic:
 
-1. `FailureClassifier` identifies the failure category.
-2. `RecoveryPolicyEngine` decides whether an action is allowed and which bounds apply.
-3. `RecoveryReasoner` explains that decision; it cannot modify it.
-4. `RecoveryExecutor` performs only an authorized action and returns a structured result.
-5. `EscalationHandler` routes denied/failed/unsafe cases without authorizing recovery.
-6. `AuditLogger` appends the complete outcome for inspection.
+1. `RecoveryRecommender` detects risk and suggests a cause/action candidate; it has no recovery authority.
+2. `FailureClassifier` independently identifies the failure category.
+3. `RecoveryPolicyEngine` decides whether an action is allowed and which bounds apply, accepting or constraining the candidate.
+4. `RecoveryReasoner` explains the final decision; it cannot modify it.
+5. `RecoveryExecutor` performs only an authorized action and returns a structured result.
+6. `EscalationHandler` routes denied/failed/unsafe cases without authorizing recovery.
+7. `AuditLogger` appends the complete outcome for inspection.
 
 This boundary is the core safety property of the recovery agent.

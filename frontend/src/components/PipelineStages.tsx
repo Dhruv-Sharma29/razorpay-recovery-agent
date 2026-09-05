@@ -1,7 +1,7 @@
 /**
  * PipelineStages component.
  *
- * Renders the recovery pipeline as a connected horizontal rail of six
+ * Renders the recovery pipeline as a connected horizontal rail of seven
  * nodes rather than six independent cards, so the sequence money moves
  * through is visible as a sequence.
  *
@@ -26,7 +26,7 @@ interface Stage {
   /** Secondary line, kept as its own node so each backend field stays
       independently addressable rather than concatenated into prose. */
   meta?: string;
-  /** Marks the LLM stage as explanation-only, never a decision-maker. */
+  /** Marks model stages as advisory-only, never decision-makers. */
   advisory?: boolean;
   /** Render value/detail in monospace (IDs, amounts, timestamps). */
   mono?: boolean;
@@ -40,6 +40,26 @@ function formatAmount(paise: number | null): string {
 
 function buildStages(result: DashboardResult): Stage[] {
   return [
+    {
+      key: "recommendation",
+      label: "AI Recommendation",
+      value: result.ai_suggested_action ?? "No recommendation",
+      detail:
+        result.recommendation_reason ??
+        (result.revenue_at_risk === true
+          ? "Revenue-risk signal detected"
+          : "No AI recommendation available"),
+      meta:
+        result.recommendation_status
+          ? `Policy treatment: ${result.recommendation_status}`
+          : result.risk_score !== null && result.risk_score !== undefined
+            ? `Risk score: ${Math.round(result.risk_score * 100)}%`
+            : undefined,
+      advisory: true,
+      reached:
+        result.recommendation_success !== null &&
+        result.recommendation_success !== undefined,
+    },
     {
       key: "classification",
       label: "Classification",
