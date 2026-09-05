@@ -60,6 +60,15 @@ DEFAULT_AMOUNT_LIMIT = 500000
 # ---------------------------------------------------------------------------
 
 
+# How far the advisor may move a retry from the category default. A cooldown
+# exists because retrying too soon fails — halving it is the most impatience
+# the rule tolerates, and tripling it the most delay, beyond which a customer
+# has moved on. Stated once here rather than per category so the bound is one
+# rule to audit instead of seven.
+_COOLDOWN_MIN_FACTOR = 0.5
+_COOLDOWN_MAX_FACTOR = 3.0
+
+
 @dataclass(frozen=True)
 class _CategoryPolicy:
     """Policy definition for a single failure category."""
@@ -71,6 +80,9 @@ class _CategoryPolicy:
     reason_template: str
     # How long to wait before the authorized action may run. 0 means run now.
     cooldown_seconds: int = 0
+    # Equally-authorised alternatives for the same cause. The advisor may
+    # choose among these; it can never widen the set.
+    alternatives: tuple[PolicyAction, ...] = ()
 
 
 _CATEGORY_POLICIES: dict[FailureCategory, _CategoryPolicy] = {
@@ -100,6 +112,7 @@ _CATEGORY_POLICIES: dict[FailureCategory, _CategoryPolicy] = {
         action=PolicyAction.IMMEDIATE_RETRY,
         max_retries=1,
         rule_id="policy.network_error.immediate_retry",
+        alternatives=(PolicyAction.SCHEDULED_RETRY,),
         reason_template=(
             "Network/gateway error: immediate retry once "
             "(attempt {attempt}/{max_retries})"
@@ -110,6 +123,7 @@ _CATEGORY_POLICIES: dict[FailureCategory, _CategoryPolicy] = {
         action=PolicyAction.SWITCH_PAYMENT_METHOD,
         max_retries=1,
         rule_id="policy.bank_decline.switch_method",
+        alternatives=(PolicyAction.SCHEDULED_RETRY,),
         reason_template=(
             "Card declined by issuer: switch to alternate payment method "
             "(attempt {attempt}/{max_retries})"
@@ -120,9 +134,22 @@ _CATEGORY_POLICIES: dict[FailureCategory, _CategoryPolicy] = {
         action=PolicyAction.RESEND_AUTH_PROMPT,
         max_retries=1,
         rule_id="policy.auth_failure.resend_prompt",
+        alternatives=(PolicyAction.SCHEDULED_RETRY,),
         reason_template=(
             "Authentication/OTP failure: resend authentication prompt "
             "(attempt {attempt}/{max_retries})"
+        ),
+    ),
+    FailureCategory.OVERDUE_RECEIVABLE: _CategoryPolicy(
+        category=FailureCategory.OVERDUE_RECEIVABLE,
+        action=PolicyAction.SEND_PAYMENT_REMINDER,
+        max_retries=3,
+        # Chasing an invoice daily is harassment; 72h between reminders.
+        cooldown_seconds=259_200,
+        rule_id="policy.overdue_receivable.reminder_sequence",
+        reason_template=(
+            "Overdue receivable: send a payment reminder after a 72h cooldown "
+            "(reminder {attempt}/{max_retries})"
         ),
     ),
     FailureCategory.UNKNOWN: _CategoryPolicy(
@@ -289,6 +316,13 @@ class RecoveryPolicyEngine:
             current_attempt=attempt,
             amount=amount,
             cooldown_seconds=cat_policy.cooldown_seconds,
+            cooldown_min_seconds=int(
+                cat_policy.cooldown_seconds * _COOLDOWN_MIN_FACTOR
+            ),
+            cooldown_max_seconds=int(
+                cat_policy.cooldown_seconds * _COOLDOWN_MAX_FACTOR
+            ),
+            permitted_actions=[cat_policy.action, *cat_policy.alternatives],
             amount_limit=self._amount_limit,
             recommendation_status=self._recommendation_status(
                 recommendation, category, cat_policy
@@ -325,6 +359,40 @@ class RecoveryPolicyEngine:
             amount=amount,
             amount_limit=self._amount_limit,
         )
+
+    @staticmethod
+    def permitted_actions_for(
+        category: FailureCategory | None,
+    ) -> tuple[PolicyAction, ...]:
+        """The actions this cause could be authorised to take.
+
+        Published so the advisor can be asked to choose from the real menu
+        instead of the whole enum. This narrows what the model may propose;
+        it never widens what policy will allow. The authoritative check still
+        happens in ``evaluate`` — this is a hint, not a grant.
+        """
+        if category is None or category not in _CATEGORY_POLICIES:
+            return ()
+        cat_policy = _CATEGORY_POLICIES[category]
+        return (cat_policy.action, *cat_policy.alternatives)
+
+    @staticmethod
+    def cooldown_window_for(category: FailureCategory | None) -> dict[str, int]:
+        """The wait this cause tolerates, published for the advisor.
+
+        Empty when the cause has no cooldown, which is how the advisor is told
+        there is no timing decision to make here.
+        """
+        if category is None or category not in _CATEGORY_POLICIES:
+            return {}
+        default = _CATEGORY_POLICIES[category].cooldown_seconds
+        if default <= 0:
+            return {}
+        return {
+            "default_seconds": default,
+            "min_seconds": int(default * _COOLDOWN_MIN_FACTOR),
+            "max_seconds": int(default * _COOLDOWN_MAX_FACTOR),
+        }
 
     @staticmethod
     def _recommendation_status(

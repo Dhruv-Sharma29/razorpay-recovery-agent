@@ -174,6 +174,8 @@ export interface BatchReasoning {
   from_cache: number;
   /** Drafts that passed the compliance filter. */
   customer_messages: number;
+  /** Times the advisor picked a different, equally-authorised action. */
+  chose_action?: number;
   /**
    * Times the model's verdict differed from the policy's. Structurally
    * always 0 — a non-zero value means the safety boundary was breached.
@@ -219,18 +221,105 @@ export interface RecoveryActions {
   execution_failed: number;
 }
 
+/** One measured recovery rate, aggregated from the audit log. */
+export interface LearnedOutcome {
+  category: string;
+  action: string;
+  recovered: number;
+  attempts: number;
+  success_rate: number;
+}
+
+/** Response from GET /api/dashboard/learned */
+export interface LearnedOutcomes {
+  min_observations: number;
+  rows: LearnedOutcome[];
+  /** False on a fresh database — nothing has happened to learn from yet. */
+  learned: boolean;
+  note?: string;
+}
+
+/** One arm of the A/B: the same batch under one policy setting. */
+export interface AbArm {
+  label: string;
+  recovered_amount: number;
+  recovery_rate_of_recoverable: number | null;
+  median_seconds_to_recovery: number | null;
+  /** Present on the treatment arm only. */
+  actions_chosen_by_model?: number;
+}
+
+/** Response from POST /api/dashboard/run-ab */
+export interface AbResult {
+  count_per_arm: number;
+  seed: number | null;
+  control: AbArm;
+  treatment: AbArm;
+  delta: {
+    recovered_amount: number;
+    recovery_rate_of_recoverable: number | null;
+    median_seconds_to_recovery: number | null;
+  };
+  /** False when the advisor made no choices, so the arms are identical. */
+  conclusive: boolean;
+  note?: string;
+}
+
+/** One case's outcome, streamed the moment the pipeline finishes with it. */
+export interface BatchCaseFrame {
+  index: number;
+  total: number;
+  payment_id: string;
+  amount: number;
+  category: string | null;
+  action: string | null;
+  allowed: boolean;
+  escalation_reason: string | null;
+  recovered: boolean;
+  outcome: string | null;
+}
+
+/** How long recovery took, across the payments that actually recovered. */
+export interface BatchTiming {
+  recovered_count: number;
+  /** Null when nothing recovered — not zero, which would read as instant. */
+  median_seconds: number | null;
+  max_seconds: number | null;
+  /** Recovered inline, with no cooldown served. */
+  instant_count: number;
+}
+
+/** What a naive "retry everything" agent would have burned on the cases
+ *  this one refused. Derived from the policy's own refusal reasons. */
+export interface RestraintSummary {
+  extra_attempts: number;
+  /** Paise the agent declined to chase automatically, above the cap. */
+  amount_chased_past_cap: number;
+  attempts_past_retry_cap: number;
+  blind_retries_on_unknown_cause: number;
+  non_retryable_retried: number;
+  note?: string;
+}
+
 /** Response from POST /api/dashboard/run-batch */
 export interface BatchSummary {
   transactions_processed: number;
   total_attempted_amount: number;
+  /** What policy authorised the agent to chase. */
+  total_recoverable_amount?: number;
   total_recovered_amount: number;
   recovery_rate_by_amount: number;
+  recovery_rate_of_recoverable?: number;
   recovery_rate_by_count: number;
   outcomes: Record<string, number>;
   funnel: FunnelCounts;
   by_scenario: ScenarioBreakdown[];
+  timing?: BatchTiming;
+  restraint?: RestraintSummary;
   audit_ids: string[];
   reasoning?: BatchReasoning;
+  /** Real customer contact attempts, not a synonym for "executed". */
+  outreach?: { attempted: number; delivered: number; simulated: boolean };
   recommendation?: BatchRecommendation;
   recovery_actions?: RecoveryActions;
   scheduler: SchedulerSummary | null;
@@ -285,6 +374,13 @@ export interface PaymentEventPayload {
   failure_category: string;
   attempt_number: number;
   mandate_status: string | null;
+  /** Live-gateway identifiers. Absent unless deliberately supplied. */
+  razorpay?: {
+    customer_id: string | null;
+    token_id: string | null;
+    email: string | null;
+    contact: string | null;
+  };
   timestamp: string;
 }
 

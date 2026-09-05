@@ -18,7 +18,10 @@
 
 import type {
   AuditLogResponse,
+  AbResult,
+  BatchCaseFrame,
   BatchSummary,
+  LearnedOutcomes,
   DashboardResult,
   PaymentEventPayload,
   ProviderStatus,
@@ -29,6 +32,20 @@ import type {
 } from "../types/dashboard";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
+
+/**
+ * Sent as X-API-Key when the backend is configured to require one.
+ *
+ * This is NOT a secret. Vite inlines env vars into the bundle at build time,
+ * so anyone who opens the deployed page can read it. It deters casual traffic
+ * against a public demo host; it is not access control. A backend that needs
+ * real authentication has to do it per-user on the server.
+ */
+/** Auth header, or nothing when the backend runs unauthenticated locally. */
+function authHeaders(): Record<string, string> {
+  const key = import.meta.env.VITE_API_KEY ?? "";
+  return key ? { "X-API-Key": key } : {};
+}
 /** Fine for a single event; a batch is a long-running operation. */
 const REQUEST_TIMEOUT_MS = 15000;
 /** A batch processes up to 500 events server-side, so it needs real headroom. */
@@ -86,7 +103,11 @@ async function requestJson<T>(
 
   let response: Response;
   try {
-    response = await fetch(url, { ...init, signal: controller.signal });
+    response = await fetch(url, {
+      ...init,
+      headers: { ...authHeaders(), ...(init?.headers ?? {}) },
+      signal: controller.signal,
+    });
   } catch (err) {
     if (err instanceof DOMException && err.name === "AbortError") {
       throw new Error(
@@ -156,6 +177,105 @@ export async function runBatch(
 
   return requestJson<BatchSummary>(
     `${API_BASE}/api/dashboard/run-batch?${params}`,
+    { method: "POST" },
+    BATCH_TIMEOUT_MS,
+  );
+}
+
+/**
+ * Run a batch as a server-sent stream, reporting each case as it lands.
+ *
+ * Same work and same summary as {@link runBatch}. The difference is when the
+ * caller learns about it: with live reasoning on, the server pays one model
+ * round trip per event, and this turns that wait into visible progress.
+ *
+ * Uses fetch rather than EventSource because EventSource cannot carry a
+ * timeout and cannot be aborted, and a batch is long enough to need both.
+ */
+export async function streamBatch(
+  count: number,
+  options: { runScheduler?: boolean; seed?: number; explain?: boolean } = {},
+  handlers: { onCase?: (frame: BatchCaseFrame) => void } = {},
+  signal?: AbortSignal,
+): Promise<BatchSummary> {
+  const params = new URLSearchParams({ count: String(count) });
+  if (options.runScheduler !== undefined) {
+    params.set("run_scheduler", String(options.runScheduler));
+  }
+  if (options.seed !== undefined) params.set("seed", String(options.seed));
+  if (options.explain !== undefined) {
+    params.set("explain", String(options.explain));
+  }
+
+  const response = await fetch(
+    `${API_BASE}/api/dashboard/run-batch/stream?${params}`,
+    { headers: authHeaders(), signal },
+  );
+  if (!response.ok) {
+    throw new Error(`Batch stream failed with status ${response.status}`);
+  }
+  if (!response.body) {
+    throw new Error("Batch stream returned no body");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let summary: BatchSummary | null = null;
+  let streamError: string | null = null;
+
+  const handleFrame = (raw: string) => {
+    let name = "message";
+    const dataLines: string[] = [];
+    for (const line of raw.split("\n")) {
+      if (line.startsWith("event:")) name = line.slice(6).trim();
+      else if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
+    }
+    if (dataLines.length === 0) return;
+    const payload = JSON.parse(dataLines.join("\n"));
+    if (name === "case") handlers.onCase?.(payload as BatchCaseFrame);
+    else if (name === "summary") summary = payload as BatchSummary;
+    else if (name === "error") streamError = payload?.message ?? "Batch failed";
+  };
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    // Frames are separated by a blank line; the tail may be a partial frame.
+    let split = buffer.indexOf("\n\n");
+    while (split !== -1) {
+      handleFrame(buffer.slice(0, split));
+      buffer = buffer.slice(split + 2);
+      split = buffer.indexOf("\n\n");
+    }
+  }
+  if (buffer.trim()) handleFrame(buffer);
+
+  if (streamError) throw new Error(streamError);
+  if (!summary) {
+    throw new Error("Batch stream ended before reporting a summary");
+  }
+  return summary;
+}
+
+/** What the agent has measured about its own recovery actions. */
+export async function fetchLearned(): Promise<LearnedOutcomes> {
+  return requestJson<LearnedOutcomes>(`${API_BASE}/api/dashboard/learned`);
+}
+
+/**
+ * Run the same batch twice, differing only in whether the advisor may choose
+ * the action, and report what that choice was worth.
+ *
+ * Two full batches server-side, so it needs the batch timeout rather than
+ * the default one.
+ */
+export async function runAb(count: number, seed?: number): Promise<AbResult> {
+  const params = new URLSearchParams({ count: String(count) });
+  if (seed !== undefined) params.set("seed", String(seed));
+  return requestJson<AbResult>(
+    `${API_BASE}/api/dashboard/run-ab?${params}`,
     { method: "POST" },
     BATCH_TIMEOUT_MS,
   );

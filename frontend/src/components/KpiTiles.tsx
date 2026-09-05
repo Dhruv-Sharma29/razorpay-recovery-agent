@@ -16,6 +16,10 @@ export default function KpiTiles({ summary }: KpiTilesProps) {
   const atRisk = summary?.total_attempted_amount ?? 0;
   const recovered = summary?.total_recovered_amount ?? 0;
   const rate = summary?.recovery_rate_by_amount ?? 0;
+  // Recovered/recoverable measures the agent. Recovered/attempted is
+  // dominated by cases policy correctly refused, and reads as failure.
+  const ofRecoverable = summary?.recovery_rate_of_recoverable ?? 0;
+  const recoverable = summary?.total_recoverable_amount ?? 0;
   const signals = summary?.funnel.needed_signal ?? 0;
   const raw = summary?.funnel.raw ?? 0;
   const selfResolved = Math.max(0, raw - signals);
@@ -38,8 +42,11 @@ export default function KpiTiles({ summary }: KpiTilesProps) {
 
       <div className="stat-tile stat-tile--positive">
         <span className="stat-tile__label">Recovery rate</span>
-        <span className="stat-tile__value">{formatPercent(rate)}</span>
-        <span className="stat-tile__sub">by amount, not by count</span>
+        <span className="stat-tile__value">{formatPercent(ofRecoverable)}</span>
+        <span className="stat-tile__sub">
+          of what policy authorised chasing ({formatRupeesCompact(recoverable)});{" "}
+          {formatPercent(rate)} of everything that failed
+        </span>
       </div>
 
       <div className="stat-tile">

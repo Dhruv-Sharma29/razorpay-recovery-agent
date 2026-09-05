@@ -50,6 +50,18 @@ class _MessageRule:
 # so they fall through to message matching.
 _SPECIFIC_CODE_RULES: tuple[_CodeRule, ...] = (
     _CodeRule(
+        "INVOICE_OVERDUE",
+        FailureCategory.OVERDUE_RECEIVABLE,
+        "code.overdue_receivable",
+        "Error code INVOICE_OVERDUE maps to overdue_receivable",
+    ),
+    _CodeRule(
+        "PAYMENT_OVERDUE",
+        FailureCategory.OVERDUE_RECEIVABLE,
+        "code.overdue_receivable",
+        "Error code PAYMENT_OVERDUE maps to overdue_receivable",
+    ),
+    _CodeRule(
         "INSUFFICIENT_FUNDS",
         FailureCategory.INSUFFICIENT_FUNDS,
         "code.insufficient_funds",

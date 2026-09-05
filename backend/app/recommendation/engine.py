@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from collections.abc import Sequence
 from typing import Any
 
 import httpx
@@ -27,7 +28,7 @@ from app.recommendation.result import (
 logger = logging.getLogger(__name__)
 
 _DEFAULT_TIMEOUT = 15.0
-_PROMPT_VERSION = "1.0.0"
+_PROMPT_VERSION = "1.2.0"
 
 _SYSTEM_PROMPT = """\
 You are a revenue-recovery advisor inside a bounded payment system.
@@ -46,6 +47,19 @@ Rules:
    infer identity or invent details that are not present.
 6. If the cause or action is unclear, return null for that field and lower
    confidence rather than guessing.
+7. Choose suggested_action ONLY from available_actions. Anything else is
+   discarded, so proposing it wastes the recommendation. If available_actions
+   is empty or none of them fit, return null.
+8. observed_outcomes is this system's own measured recovery rate per cause and
+   action. Prefer the action with the better observed rate unless something in
+   this specific event argues against it, and say which in evidence. Treat a
+   small attempts count as weak evidence.
+9. suggested_delay_seconds is how long to wait before retrying. It must fall
+   within cooldown_window; a value outside it is discarded and the default
+   used. For insufficient funds the wait is the intervention — an account
+   empty now is often funded on a salary date — so use the history to time it
+   rather than repeating the default. Return null if you have no reason to
+   move it.
 
 JSON schema:
 {
@@ -54,6 +68,7 @@ JSON schema:
   "suggested_cause": "insufficient_funds | expired_card | network_error | bank_decline | authentication_failure | unknown | null",
   "suggested_action": "scheduled_retry | immediate_retry | trigger_reauthorization | switch_payment_method | resend_auth_prompt | escalate | no_action | null",
   "confidence": 0.0,
+  "suggested_delay_seconds": 0,
   "evidence": ["short factual observation"]
 }
 """
@@ -63,6 +78,9 @@ def _event_prompt(
     payment_event: FailedTransactionEvent,
     classification: ClassificationResult | None,
     approved_history: ApprovedPaymentHistory | None = None,
+    available_actions: Sequence[str] | None = None,
+    observed_outcomes: Sequence[dict] | None = None,
+    cooldown_window: dict | None = None,
 ) -> str:
     return json.dumps(
         {
@@ -96,6 +114,14 @@ def _event_prompt(
                 if approved_history is not None
                 else None
             ),
+            # The real menu. Policy decides regardless, but a suggestion
+            # outside this set can only ever be thrown away.
+            "available_actions": list(available_actions or []),
+            # The advisor may move the retry inside this window and nowhere else.
+            "cooldown_window": dict(cooldown_window or {}),
+            # Measured, not assumed: aggregated from this system's own
+            # append-only record of what each action actually recovered.
+            "observed_outcomes": list(observed_outcomes or []),
         },
         indent=2,
     )
@@ -179,6 +205,16 @@ def _parse_response(
     suggested_action = parse_enum(
         parsed.get("suggested_action"), PolicyAction, "suggested_action"
     )
+    # A malformed delay must not sink an otherwise valid recommendation: the
+    # policy default is always a safe answer, so an unusable value becomes None.
+    raw_delay = parsed.get("suggested_delay_seconds")
+    try:
+        suggested_delay = (
+            None if raw_delay is None else max(0, int(raw_delay))
+        )
+    except (TypeError, ValueError):
+        suggested_delay = None
+
     evidence = parsed.get("evidence", [])
     if not isinstance(evidence, list) or not all(isinstance(item, str) for item in evidence):
         raise ValueError("evidence must be a list of strings")
@@ -190,6 +226,7 @@ def _parse_response(
         suggested_cause=suggested_cause,
         suggested_action=suggested_action,
         confidence=confidence,
+        suggested_delay_seconds=suggested_delay,
         evidence=[item.strip()[:240] for item in evidence[:5] if item.strip()],
         model_id=model_id,
         is_fallback=False,
@@ -224,6 +261,9 @@ class RecoveryRecommender:
         payment_event: FailedTransactionEvent,
         classification: ClassificationResult | None = None,
         approved_history: ApprovedPaymentHistory | None = None,
+        available_actions: Sequence[str] | None = None,
+        observed_outcomes: Sequence[dict] | None = None,
+        cooldown_window: dict | None = None,
     ) -> RecoveryRecommendation:
         """Return a recommendation; all provider failures fail safely."""
         if not self._api_key or not self._api_key.strip():
@@ -242,7 +282,12 @@ class RecoveryRecommender:
                 {
                     "role": "user",
                     "content": _event_prompt(
-                        payment_event, classification, approved_history
+                        payment_event,
+                        classification,
+                        approved_history,
+                        available_actions,
+                        observed_outcomes,
+                        cooldown_window,
                     ),
                 },
             ],

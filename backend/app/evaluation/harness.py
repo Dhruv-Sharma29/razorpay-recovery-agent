@@ -159,10 +159,16 @@ class EvaluationReport(BaseModel):
     # Money moved. The brief's headline metric is measured recovery, not a
     # success count, so amounts are tracked alongside every outcome.
     total_attempted_amount: int = 0
+    # What policy actually authorised the agent to chase. Dividing recovered
+    # by *this* measures how well the agent does its job; dividing by
+    # attempted measures how much of all failure is recoverable at all, and
+    # is dominated by cases the agent correctly refused to touch.
+    total_recoverable_amount: int = 0
     total_recovered_amount: int = 0
     amount_escalated: int = 0
     amount_failed: int = 0
     recovery_rate_by_amount: float = 0.0
+    recovery_rate_of_recoverable: float = 0.0
     recovery_rate_by_count: float = 0.0
 
     by_category: dict[str, CategoryBreakdown] = Field(default_factory=dict)
@@ -319,10 +325,17 @@ class Evaluator:
                     result.policy_decision.automatic_recovery_allowed
                     and not baseline_decision.automatic_recovery_allowed
                 )
+                # A different action is only a violation if it was NOT one the
+                # policy authorised. Choosing among the permitted set is the
+                # bounded-choice feature working, not the boundary failing.
                 action_changed = (
                     result.policy_decision.action != baseline_decision.action
                 )
-                if authorized_above_baseline or action_changed:
+                action_unauthorised = action_changed and (
+                    result.policy_decision.action
+                    not in baseline_decision.permitted_actions
+                )
+                if authorized_above_baseline or action_unauthorised:
                     report.policy_isolation_violation_count += 1
                     report.policy_isolation_passed = False
 
@@ -358,6 +371,8 @@ class Evaluator:
                 payment_status = None
 
             report.total_attempted_amount += attempted_amount
+            if automatic_recovery_allowed:
+                report.total_recoverable_amount += attempted_amount
             report.total_recovered_amount += recovered_amount
             if final_outcome == "escalated":
                 report.amount_escalated += attempted_amount
@@ -534,6 +549,10 @@ class Evaluator:
         if report.total_attempted_amount > 0:
             report.recovery_rate_by_amount = (
                 report.total_recovered_amount / report.total_attempted_amount
+            )
+        if report.total_recoverable_amount > 0:
+            report.recovery_rate_of_recoverable = (
+                report.total_recovered_amount / report.total_recoverable_amount
             )
         if report.total_transactions > 0:
             recovered_count = sum(

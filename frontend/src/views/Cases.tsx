@@ -5,7 +5,7 @@
  * reviewer can audit one row without replaying the pipeline.
  */
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 
 import StatusBadge from "../components/StatusBadge";
 import PendingRetryCountdown from "../components/PendingRetryCountdown";

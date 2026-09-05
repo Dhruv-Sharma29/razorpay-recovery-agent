@@ -16,6 +16,16 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./recovery.db"
     auto_recovery_amount_limit: int = 500000
     executor_mode: str = "mock"  # "mock" | "razorpay_test"
+    # Set in the Razorpay dashboard when creating the webhook. This is NOT
+    # razorpay_key_secret — a different value signs webhook bodies. Empty
+    # means the webhook endpoint refuses every request rather than trusting
+    # unsigned input.
+    razorpay_webhook_secret: str = ""
+    # How sure the advisor must be before its action choice is taken over the
+    # policy default. The A/B showed an ungated advisor losing ground, so the
+    # bar exists to make it earn the override rather than merely have an
+    # opinion. Raising this toward 1.0 approaches pure deterministic policy.
+    model_action_choice_min_confidence: float = 0.7
     environment: str = "development"
     api_secret_key: str = ""
     # Comma-separated list of browser origins allowed to call the API.

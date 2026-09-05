@@ -56,6 +56,15 @@ class RecoveryRecommendation(BaseModel):
     suggested_cause: FailureCategory | None = Field(default=None)
     suggested_action: PolicyAction | None = Field(default=None)
     confidence: float = Field(..., ge=0.0, le=1.0)
+    suggested_delay_seconds: int | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "How long the advisor would wait before retrying. Advisory: the "
+            "policy publishes a permitted window and anything outside it is "
+            "ignored, so this can shift timing but never remove a cooldown."
+        ),
+    )
     evidence: list[str] = Field(default_factory=list, max_length=5)
     model_id: str = Field(..., description="Model or fallback provider reference")
     is_fallback: bool = Field(default=False)
