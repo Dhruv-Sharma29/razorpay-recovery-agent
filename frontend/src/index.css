@@ -39,6 +39,9 @@
      for fills and borders, where contrast rules differ. */
   --accent-text: #2452e8;
   --signal-stop-text: #b23a3a;
+  /* The top bar is navy in both themes, so this variant is defined once and
+     never swapped: --signal-ok itself clears only 3.46:1 against it. */
+  --signal-ok-on-dark: #2fae7a;
 
   /* Borders */
   --border-default: #e1e5f0;
@@ -2413,4 +2416,246 @@ body {
   font-size: 0.72rem;
   line-height: 1.55;
   color: var(--text-secondary);
+}
+
+/* --- Recovery ticker ---------------------------------------------------- */
+/* Always visible, on every view: the one number the whole project is about.
+   Sits on the navy bar, so it uses the on-dark variant of the OK signal. */
+.ticker {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  min-width: 0;
+  margin-left: 1rem;
+}
+
+.ticker__label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: rgba(244, 246, 251, 0.72);
+}
+
+.ticker__value {
+  font-family: var(--mono-font);
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--signal-ok-on-dark);
+  font-variant-numeric: tabular-nums;
+}
+
+.ticker__rate {
+  font-size: 0.7rem;
+  color: rgba(244, 246, 251, 0.72);
+  white-space: nowrap;
+}
+
+/* The bar is tight on small screens; the rate is the first thing to go. */
+@media (max-width: 900px) {
+  .ticker__rate {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .ticker {
+    margin-left: 0.6rem;
+  }
+
+  .ticker__label {
+    display: none;
+  }
+}
+
+/* --- Guided demo modal -------------------------------------------------- */
+.view__header--split {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(10, 26, 63, 0.55);
+}
+
+.modal {
+  width: min(100%, 34rem);
+  max-height: min(85vh, 44rem);
+  overflow-y: auto;
+  padding: 1.25rem;
+  border-radius: var(--radius-lg);
+  background: var(--bg-card);
+  box-shadow: var(--shadow-lg);
+}
+
+.modal__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.modal__close {
+  flex: none;
+  width: 1.9rem;
+  height: 1.9rem;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.modal__close:hover {
+  background: var(--bg-subtle);
+  color: var(--text-primary);
+}
+
+.modal__close:focus-visible,
+.toast__close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.modal__lede {
+  margin: 0.35rem 0 1rem;
+  font-size: 0.78rem;
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+
+.demo-log {
+  margin: 1rem 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.demo-log__row {
+  display: grid;
+  grid-template-columns: 9.5rem minmax(0, 1fr);
+  gap: 0.2rem 0.75rem;
+  padding: 0.5rem 0 0.5rem 0.6rem;
+  border-left: 3px solid var(--border-default);
+  border-bottom: 1px solid var(--border-default);
+}
+
+.demo-log__row:last-child {
+  border-bottom: none;
+}
+
+.demo-log__row[data-tone="ok"] {
+  border-left-color: var(--signal-ok);
+}
+
+.demo-log__row[data-tone="hold"] {
+  border-left-color: var(--signal-hold);
+}
+
+.demo-log__label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+}
+
+.demo-log__value {
+  min-width: 0;
+  font-size: 0.82rem;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.demo-log__note {
+  margin: 0.9rem 0 0;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .demo-log__row {
+    animation: live-feed-in 200ms ease-out;
+  }
+}
+
+/* Stack under 480px so the label column stops squeezing the value. */
+@media (max-width: 480px) {
+  .demo-log__row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* --- Toasts ------------------------------------------------------------- */
+.toaster {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-width: min(100vw - 2rem, 24rem);
+}
+
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: var(--radius-md);
+  border-left: 3px solid var(--border-strong);
+  background: var(--bg-card);
+  box-shadow: var(--shadow-md);
+}
+
+.toast[data-tone="ok"] {
+  border-left-color: var(--signal-ok);
+}
+
+.toast[data-tone="hold"] {
+  border-left-color: var(--signal-hold);
+}
+
+.toast[data-tone="stop"] {
+  border-left-color: var(--signal-stop);
+}
+
+.toast__message {
+  min-width: 0;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.toast__close {
+  flex: none;
+  margin-left: auto;
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .toast {
+    animation: live-feed-in 200ms ease-out;
+  }
 }

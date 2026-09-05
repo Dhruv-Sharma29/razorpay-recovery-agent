@@ -6,7 +6,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { streamBatch } from "../api/client";
+import { runGoldenPath, streamBatch } from "../api/client";
 import type { BatchCaseFrame } from "../types/dashboard";
 
 const CASE = {
@@ -46,6 +46,53 @@ function mockStream(chunks: string[], ok = true, status = 200) {
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
+});
+
+describe("Timeouts", () => {
+  /** A fetch that never resolves on its own; only the abort signal ends it. */
+  function hangingFetch() {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (_url: string, init: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            init.signal?.addEventListener("abort", () =>
+              reject(new DOMException("aborted", "AbortError")),
+            );
+          }),
+      ),
+    );
+  }
+
+  it("does not abort the golden path at the old 15s ceiling", async () => {
+    // The backend allows 15s for the recommendation and 15s again for the
+    // explanation, so aborting at 15s cancelled work still legitimately
+    // in progress. This is the bug that produced "Is the backend running?".
+    vi.useFakeTimers();
+    hangingFetch();
+    let settled = false;
+    const pending = runGoldenPath().catch(() => {
+      settled = true;
+    });
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(settled).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(45_000);
+    await pending;
+    expect(settled).toBe(true);
+    vi.useRealTimers();
+  });
+
+  it("blames the model rather than a missing backend on a long timeout", async () => {
+    vi.useFakeTimers();
+    hangingFetch();
+    const pending = runGoldenPath().catch((e: Error) => e);
+    await vi.advanceTimersByTimeAsync(61_000);
+    const error = (await pending) as Error;
+    vi.useRealTimers();
+    expect(error.message).toMatch(/model may be slow/i);
+    expect(error.message).not.toMatch(/is the backend running/i);
+  });
 });
 
 describe("API authentication", () => {

@@ -50,6 +50,13 @@ function authHeaders(): Record<string, string> {
 const REQUEST_TIMEOUT_MS = 15000;
 /** A batch processes up to 500 events server-side, so it needs real headroom. */
 const BATCH_TIMEOUT_MS = 600000;
+/**
+ * The golden path deliberately runs live reasoning, and the backend allows
+ * each model call 15s of its own — recommendation then reasoning — so a single
+ * record can legitimately take past 30s. A 15s client timeout aborted the
+ * request before the backend had finished work it was still entitled to do.
+ */
+const GOLDEN_PATH_TIMEOUT_MS = 60000;
 
 interface FastApiValidationError {
   loc?: (string | number)[];
@@ -110,9 +117,16 @@ async function requestJson<T>(
     });
   } catch (err) {
     if (err instanceof DOMException && err.name === "AbortError") {
+      if (timeoutMs >= BATCH_TIMEOUT_MS) {
+        throw new Error(
+          "The batch took too long and was cancelled. Try a smaller count.",
+        );
+      }
+      // A long operation that times out is a slow backend, not an absent one.
+      // Asking "is it running?" sends people to check a server that is fine.
       throw new Error(
-        timeoutMs >= BATCH_TIMEOUT_MS
-          ? "The batch took too long and was cancelled. Try a smaller count."
+        timeoutMs > REQUEST_TIMEOUT_MS
+          ? `The request took longer than ${Math.round(timeoutMs / 1000)}s. The model may be slow or unreachable.`
           : "Request timed out. Is the backend running?",
       );
     }
@@ -329,6 +343,7 @@ export async function getProvider(): Promise<ProviderStatus> {
 export async function runGoldenPath(): Promise<DashboardResult> {
   return requestJson<DashboardResult>(
     `${API_BASE}/api/dashboard/golden-path`,
-    { method: "POST" }
+    { method: "POST" },
+    GOLDEN_PATH_TIMEOUT_MS,
   );
 }
