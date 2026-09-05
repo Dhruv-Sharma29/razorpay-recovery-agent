@@ -12,8 +12,10 @@ from unittest.mock import patch, MagicMock
 import pytest
 
 from app.evaluation.harness import Evaluator, EvaluationReport
-from app.models.payment_event import FailedTransactionEvent
+from app.models.payment_event import FailedTransactionEvent, FailureCategory
 from app.pipeline.engine import RecoveryPipeline
+from app.policy.result import PolicyAction
+from app.recommendation.result import RecoveryRecommendation
 from app.reasoning.engine import RecoveryReasoner
 
 
@@ -49,6 +51,63 @@ def valid_record():
 
 
 class TestEvaluationHarness:
+
+    def test_recommendation_metrics_and_policy_isolation(
+        self, temp_dataset, valid_record
+    ):
+        """Risk metrics, treatment rates, and the isolation check are auditable."""
+        unknown = valid_record.copy()
+        unknown.update(
+            event_id="evt_unknown",
+            razorpay_payment_id="pay_unknown",
+            error_code="WEIRD_ERROR",
+            error_description="unrecognized provider failure",
+            failure_category="unknown",
+        )
+
+        class FixtureRecommender:
+            def recommend(self, event, classification, approved_history=None):
+                known = classification.category != FailureCategory.UNKNOWN
+                return RecoveryRecommendation(
+                    success=True,
+                    revenue_at_risk=known,
+                    risk_score=0.9 if known else 0.1,
+                    suggested_cause=classification.category,
+                    suggested_action=(
+                        PolicyAction.SCHEDULED_RETRY if known else None
+                    ),
+                    confidence=0.9,
+                    evidence=["fixture"],
+                    model_id="fixture-model",
+                    prompt_version="test",
+                )
+
+        file_path = temp_dataset([valid_record, unknown])
+        evaluator = Evaluator(recommender=FixtureRecommender())
+        from app.reasoning.result import ReasoningResult
+        mock_result = ReasoningResult(
+            success=True,
+            recommendation="Mock recommendation",
+            explanation="Mock reason",
+            confidence=0.9,
+            policy_action_allowed=True,
+            is_fallback=True,
+            model_id="mock",
+        )
+        with patch.object(RecoveryReasoner, "analyze", return_value=mock_result):
+            report = evaluator.evaluate("Metrics", file_path)
+
+        assert report.risk_detection_precision == 1.0
+        assert report.risk_detection_recall == 1.0
+        assert report.recommendation_status_counts == {
+            "accepted": 1,
+            "unavailable": 1,
+        }
+        assert report.recommendation_acceptance_rate == 0.5
+        assert report.recommendation_rejection_rate == 0.0
+        assert report.policy_isolation_passed is True
+        assert report.policy_isolation_violation_count == 0
+        assert all(record.audit_id for record in report.records)
 
     def test_synthetic_and_held_out_load_successfully(self):
         """1 & 2. Synthetic and held-out datasets load successfully."""

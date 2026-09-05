@@ -119,7 +119,9 @@ class TestExplainMode:
     ]
 
     def test_explain_does_not_change_any_batch_metric(self):
+        client.post("/api/dashboard/reset")
         off = _run(count=12, seed=7, run_scheduler=True, explain=False)
+        client.post("/api/dashboard/reset")
         on = _run(count=12, seed=7, run_scheduler=True, explain=True)
         for key in self.METRICS:
             assert off[key] == on[key], f"{key} changed with explain=true"
@@ -132,6 +134,17 @@ class TestExplainMode:
 
     def test_reasoning_block_names_the_model(self):
         assert "nemotron" in _run(count=3)["reasoning"]["model"]
+
+    def test_recommendation_block_reports_advisor_telemetry(self):
+        data = _run(count=6, run_scheduler=False)
+        recommendation = data["recommendation"]
+        assert recommendation["mode"] == "skipped"
+        assert recommendation["consultations"] == 6
+        assert recommendation["consultations"] == (
+            recommendation["model_generated"] + recommendation["fallback"]
+        )
+        assert recommendation["accepted"] + recommendation["constrained"] + recommendation["rejected"] + recommendation["unavailable"] == 6
+        assert "nemotron" in recommendation["model"]
 
 
 class TestProvider:

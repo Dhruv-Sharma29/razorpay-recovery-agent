@@ -69,6 +69,49 @@ describe("Overview", () => {
     expect(screen.getByText(/payments are simulated/i)).toBeInTheDocument();
   });
 
+  it("surfaces recommendation model telemetry", () => {
+    render(
+      <Overview
+        summary={{
+          ...SUMMARY,
+          reasoning: {
+            mode: "model",
+            consultations: 40,
+            model_generated: 40,
+            fallback: 0,
+            from_cache: 0,
+            customer_messages: 30,
+            overrode_policy: 0,
+            model: "nvidia/nemotron-reasoner",
+            average_latency_ms: 76,
+          },
+          recommendation: {
+            mode: "model",
+            consultations: 40,
+            model_generated: 40,
+            fallback: 0,
+            risk_detected: 28,
+            accepted: 20,
+            constrained: 6,
+            rejected: 2,
+            unavailable: 12,
+            model: "nvidia/nemotron-recommender",
+            average_latency_ms: 91,
+          },
+        }}
+        risk={null}
+        error={null}
+        running={false}
+      />,
+    );
+    expect(screen.getByTestId("overview-ai-summary")).toHaveTextContent(
+      "nvidia/nemotron-recommender",
+    );
+    expect(screen.getByTestId("ai-contribution")).toHaveTextContent(
+      "91ms avg",
+    );
+  });
+
   it("renders each funnel stage with its count", () => {
     render(<Overview summary={SUMMARY} risk={null} error={null} running={false} />);
     const funnel = within(screen.getByTestId("recovery-funnel"));

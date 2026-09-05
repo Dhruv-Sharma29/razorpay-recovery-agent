@@ -4,7 +4,7 @@
  * The rail marks each stage reached/pending independently rather than
  * from a single "current stage" index, because stages get skipped — an
  * escalated payment never executes. These tests pin that behaviour, and
- * the advisory marking on the LLM stage.
+ * the advisory marking on the model stages.
  */
 
 import { render, screen } from "@testing-library/react";
@@ -19,6 +19,12 @@ function result(overrides: Partial<DashboardResult> = {}): DashboardResult {
     event_id: "evt_1",
     failure_category: "insufficient_funds",
     classification_reason: "Matched rule",
+    recommendation_success: true,
+    revenue_at_risk: true,
+    risk_score: 0.91,
+    ai_suggested_action: "scheduled_retry",
+    recommendation_status: "accepted",
+    recommendation_reason: "Recommendation matched policy",
     policy_action: "scheduled_retry",
     policy_reason: "Retry after 24h",
     automatic_recovery_allowed: true,
@@ -46,12 +52,13 @@ function node(label: string): HTMLElement {
 }
 
 describe("PipelineStages", () => {
-  it("renders all six stages in pipeline order", () => {
+  it("renders all seven stages in pipeline order", () => {
     const { container } = render(<PipelineStages result={result()} />);
     const labels = [...container.querySelectorAll(".rail-node__label")].map((n) =>
       n.textContent?.replace("Advisory only", "").trim(),
     );
     expect(labels).toEqual([
+      "AI Recommendation",
       "Classification",
       "Policy Decision",
       "Reasoning",
@@ -61,11 +68,20 @@ describe("PipelineStages", () => {
     ]);
   });
 
-  it("marks the reasoning stage as advisory only", () => {
+  it("marks model stages as advisory only", () => {
     render(<PipelineStages result={result()} />);
+    expect(node("AI Recommendation")).toHaveTextContent("Advisory only");
     expect(node("Reasoning")).toHaveTextContent("Advisory only");
     // The deciding stage must never be labelled advisory.
     expect(node("Policy Decision")).not.toHaveTextContent("Advisory only");
+  });
+
+  it("shows the AI suggestion separately from policy treatment", () => {
+    render(<PipelineStages result={result()} />);
+    expect(node("AI Recommendation")).toHaveTextContent("scheduled_retry");
+    expect(node("AI Recommendation")).toHaveTextContent(
+      "Policy treatment: accepted",
+    );
   });
 
   it("marks a skipped stage pending and hides its detail", () => {

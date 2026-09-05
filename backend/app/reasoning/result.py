@@ -114,6 +114,21 @@ class ReasoningResult(BaseModel):
         ),
     )
 
+    prompt_version: str | None = Field(
+        default=None,
+        description="Version identifier of the prompt used to generate this explanation.",
+    )
+
+    schema_version: str | None = Field(
+        default=None,
+        description="Version identifier of the JSON schema expected from the model.",
+    )
+
+    latency_ms: int | None = Field(
+        default=None,
+        description="Network latency of the NIM API call in milliseconds. None if from cache or fallback.",
+    )
+
     # --- Operator-facing contribution ------------------------------------
     # These are the model's actual value-add: plain-language framing an
     # operator can act on. All are optional — a missing or invalid field

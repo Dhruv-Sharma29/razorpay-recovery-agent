@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import threading
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -114,6 +115,10 @@ class RecoveryStateStore:
         )
         self._path = resolve_sqlite_path(self._database_url)
         self._connection = sqlite3.connect(self._path, check_same_thread=False)
+        # The application shares one SQLite connection across the bounded
+        # batch worker pool. SQLite connections are not safe to use
+        # concurrently, even when ``check_same_thread`` is disabled.
+        self._lock = threading.RLock()
         self._connection.execute(_CREATE_LEDGER_SQL)
         self._connection.execute(_CREATE_ATTEMPTS_SQL)
         self._connection.execute(_CREATE_ATTEMPTS_INDEX_SQL)
@@ -129,12 +134,13 @@ class RecoveryStateStore:
 
     def get_execution(self, idempotency_key: str) -> dict[str, Any] | None:
         """Return the recorded execution for a key, or None if never seen."""
-        row = self._connection.execute(
-            "SELECT idempotency_key, payment_id, event_id, action, status, "
-            "execution_id, executed, recorded_at FROM execution_ledger "
-            "WHERE idempotency_key = ?",
-            (idempotency_key,),
-        ).fetchone()
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT idempotency_key, payment_id, event_id, action, status, "
+                "execution_id, executed, recorded_at FROM execution_ledger "
+                "WHERE idempotency_key = ?",
+                (idempotency_key,),
+            ).fetchone()
         if row is None:
             return None
         return {
@@ -164,29 +170,30 @@ class RecoveryStateStore:
         Uses INSERT OR IGNORE so the FIRST outcome for a key wins and later
         duplicates never overwrite it.
         """
-        try:
-            self._connection.execute(
-                "INSERT OR IGNORE INTO execution_ledger "
-                "(idempotency_key, payment_id, event_id, action, status, "
-                "execution_id, executed, recorded_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    idempotency_key,
-                    payment_id,
-                    event_id,
-                    action,
-                    status,
-                    execution_id,
-                    1 if executed else 0,
-                    _now_iso(),
-                ),
-            )
-            self._connection.commit()
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Ledger write failed: %s", exc)
+        with self._lock:
             try:
-                self._connection.rollback()
-            except Exception:  # noqa: BLE001
-                pass
+                self._connection.execute(
+                    "INSERT OR IGNORE INTO execution_ledger "
+                    "(idempotency_key, payment_id, event_id, action, status, "
+                    "execution_id, executed, recorded_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        idempotency_key,
+                        payment_id,
+                        event_id,
+                        action,
+                        status,
+                        execution_id,
+                        1 if executed else 0,
+                        _now_iso(),
+                    ),
+                )
+                self._connection.commit()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Ledger write failed: %s", exc)
+                try:
+                    self._connection.rollback()
+                except Exception:  # noqa: BLE001
+                    pass
 
     # --- Attempt history -------------------------------------------------
 
@@ -199,27 +206,29 @@ class RecoveryStateStore:
         status: str | None,
     ) -> None:
         """Append one attempt row for a payment."""
-        try:
-            self._connection.execute(
-                "INSERT INTO recovery_attempts "
-                "(payment_id, event_id, action, status, created_at) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (payment_id, event_id, action, status, _now_iso()),
-            )
-            self._connection.commit()
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Attempt write failed: %s", exc)
+        with self._lock:
             try:
-                self._connection.rollback()
-            except Exception:  # noqa: BLE001
-                pass
+                self._connection.execute(
+                    "INSERT INTO recovery_attempts "
+                    "(payment_id, event_id, action, status, created_at) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (payment_id, event_id, action, status, _now_iso()),
+                )
+                self._connection.commit()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Attempt write failed: %s", exc)
+                try:
+                    self._connection.rollback()
+                except Exception:  # noqa: BLE001
+                    pass
 
     def count_attempts(self, payment_id: str) -> int:
         """Number of recorded attempts for a payment (server-side truth)."""
-        row = self._connection.execute(
-            "SELECT COUNT(*) FROM recovery_attempts WHERE payment_id = ?",
-            (payment_id,),
-        ).fetchone()
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT COUNT(*) FROM recovery_attempts WHERE payment_id = ?",
+                (payment_id,),
+            ).fetchone()
         return int(row[0]) if row else 0
 
     def next_attempt_number(self, payment_id: str) -> int:
@@ -247,69 +256,73 @@ class RecoveryStateStore:
         Idempotent per (payment_id, event_id, action): re-scheduling the
         same work returns the existing pending job instead of duplicating it.
         """
-        existing = self._connection.execute(
-            "SELECT job_id FROM scheduled_jobs "
-            "WHERE payment_id = ? AND event_id = ? AND action = ? "
-            "AND status = 'pending'",
-            (payment_id, event_id, action),
-        ).fetchone()
-        if existing is not None:
-            return existing[0]
+        with self._lock:
+            existing = self._connection.execute(
+                "SELECT job_id FROM scheduled_jobs "
+                "WHERE payment_id = ? AND event_id = ? AND action = ? "
+                "AND status = 'pending'",
+                (payment_id, event_id, action),
+            ).fetchone()
+            if existing is not None:
+                return existing[0]
 
-        now = _now_iso()
-        new_id = job_id or str(uuid.uuid4())
-        self._connection.execute(
-            "INSERT INTO scheduled_jobs (job_id, payment_id, event_id, action, "
-            "next_eligible_at, status, event_json, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?)",
-            (
-                new_id,
-                payment_id,
-                event_id,
-                action,
-                next_eligible_at.isoformat(),
-                event_json,
-                now,
-                now,
-            ),
-        )
-        self._connection.commit()
-        return new_id
+            now = _now_iso()
+            new_id = job_id or str(uuid.uuid4())
+            self._connection.execute(
+                "INSERT INTO scheduled_jobs (job_id, payment_id, event_id, action, "
+                "next_eligible_at, status, event_json, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?)",
+                (
+                    new_id,
+                    payment_id,
+                    event_id,
+                    action,
+                    next_eligible_at.isoformat(),
+                    event_json,
+                    now,
+                    now,
+                ),
+            )
+            self._connection.commit()
+            return new_id
 
     def due_jobs(self, now: datetime) -> list[dict[str, Any]]:
         """Pending jobs whose cooldown has elapsed, oldest first."""
-        rows = self._connection.execute(
-            "SELECT job_id, payment_id, event_id, action, next_eligible_at, "
-            "status, event_json, created_at, updated_at FROM scheduled_jobs "
-            "WHERE status = 'pending' AND next_eligible_at <= ? "
-            "ORDER BY next_eligible_at ASC",
-            (now.isoformat(),),
-        ).fetchall()
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT job_id, payment_id, event_id, action, next_eligible_at, "
+                "status, event_json, created_at, updated_at FROM scheduled_jobs "
+                "WHERE status = 'pending' AND next_eligible_at <= ? "
+                "ORDER BY next_eligible_at ASC",
+                (now.isoformat(),),
+            ).fetchall()
         return [self._job_row(r) for r in rows]
 
     def mark_job(self, job_id: str, status: str) -> None:
         """Move a job out of pending (``done`` or ``failed``)."""
-        self._connection.execute(
-            "UPDATE scheduled_jobs SET status = ?, updated_at = ? WHERE job_id = ?",
-            (status, _now_iso(), job_id),
-        )
-        self._connection.commit()
+        with self._lock:
+            self._connection.execute(
+                "UPDATE scheduled_jobs SET status = ?, updated_at = ? WHERE job_id = ?",
+                (status, _now_iso(), job_id),
+            )
+            self._connection.commit()
 
     def list_jobs(self, status: str | None = None) -> list[dict[str, Any]]:
         """All jobs, optionally filtered by status."""
-        if status is None:
-            rows = self._connection.execute(
-                "SELECT job_id, payment_id, event_id, action, next_eligible_at, "
-                "status, event_json, created_at, updated_at FROM scheduled_jobs "
-                "ORDER BY created_at ASC"
-            ).fetchall()
-        else:
-            rows = self._connection.execute(
-                "SELECT job_id, payment_id, event_id, action, next_eligible_at, "
-                "status, event_json, created_at, updated_at FROM scheduled_jobs "
-                "WHERE status = ? ORDER BY created_at ASC",
-                (status,),
-            ).fetchall()
+        with self._lock:
+            if status is None:
+                rows = self._connection.execute(
+                    "SELECT job_id, payment_id, event_id, action, next_eligible_at, "
+                    "status, event_json, created_at, updated_at FROM scheduled_jobs "
+                    "ORDER BY created_at ASC"
+                ).fetchall()
+            else:
+                rows = self._connection.execute(
+                    "SELECT job_id, payment_id, event_id, action, next_eligible_at, "
+                    "status, event_json, created_at, updated_at FROM scheduled_jobs "
+                    "WHERE status = ? ORDER BY created_at ASC",
+                    (status,),
+                ).fetchall()
         return [self._job_row(r) for r in rows]
 
     @staticmethod
@@ -332,10 +345,12 @@ class RecoveryStateStore:
         Test-mode only: this deliberately discards the guarantees that stop
         a payment being retried twice, so it must never run in production.
         """
-        self._connection.execute("DELETE FROM execution_ledger")
-        self._connection.execute("DELETE FROM recovery_attempts")
-        self._connection.execute("DELETE FROM scheduled_jobs")
-        self._connection.commit()
+        with self._lock:
+            self._connection.execute("DELETE FROM execution_ledger")
+            self._connection.execute("DELETE FROM recovery_attempts")
+            self._connection.execute("DELETE FROM scheduled_jobs")
+            self._connection.commit()
 
     def close(self) -> None:
-        self._connection.close()
+        with self._lock:
+            self._connection.close()

@@ -30,6 +30,7 @@ from app.escalation.result import EscalationResult, EscalationStatus
 from app.executor.result import ExecutionResult, ExecutionStatus
 from app.models.payment_event import FailedTransactionEvent
 from app.policy.result import PolicyDecision
+from app.recommendation.result import ApprovedPaymentHistory, RecoveryRecommendation
 from app.reasoning.result import ReasoningResult
 
 logger = logging.getLogger(__name__)
@@ -41,13 +42,15 @@ CREATE TABLE IF NOT EXISTS audit_log (
     recorded_at TEXT NOT NULL,
     event_id TEXT NOT NULL,
     payment_id TEXT NOT NULL,
-    payload TEXT NOT NULL
+    payload TEXT NOT NULL,
+    previous_hash TEXT,
+    record_hash TEXT NOT NULL
 )
 """
 
 _INSERT_SQL = """
-INSERT INTO audit_log (audit_id, recorded_at, event_id, payment_id, payload)
-VALUES (?, ?, ?, ?, ?)
+INSERT INTO audit_log (audit_id, recorded_at, event_id, payment_id, payload, previous_hash, record_hash)
+VALUES (?, ?, ?, ?, ?, ?, ?)
 """
 
 _SECRET_KEY_FRAGMENTS = (
@@ -179,11 +182,13 @@ class AuditLogger:
     """
 
     def __init__(self, database_url: str | None = None) -> None:
+        import threading
         self._database_url = (
             database_url if database_url is not None else settings.database_url
         )
         self._path = resolve_sqlite_path(self._database_url)
         self._connection = sqlite3.connect(self._path, check_same_thread=False)
+        self._lock = threading.Lock()
         self._connection.execute(_CREATE_TABLE_SQL)
         self._connection.commit()
 
@@ -196,6 +201,7 @@ class AuditLogger:
         payment_event: FailedTransactionEvent | None,
         *,
         classification: ClassificationResult | None = None,
+        recommendation: RecoveryRecommendation | None = None,
         policy_decision: PolicyDecision | None = None,
         reasoning: ReasoningResult | None = None,
         execution: ExecutionResult | None = None,
@@ -217,6 +223,7 @@ class AuditLogger:
                 now=now,
                 payment_event=payment_event,
                 classification=classification,
+                recommendation=recommendation,
                 policy_decision=policy_decision,
                 reasoning=reasoning,
                 execution=execution,
@@ -224,17 +231,35 @@ class AuditLogger:
                 extra=extra,
             )
             payload = redact_secrets(record.model_dump(mode="json"))
-            self._connection.execute(
-                _INSERT_SQL,
-                (
-                    record.audit_id,
-                    record.timestamp.isoformat(),
-                    record.event_id,
-                    record.payment_id,
-                    json.dumps(payload),
-                ),
-            )
-            self._connection.commit()
+            payload_str = json.dumps(payload, sort_keys=True)
+
+            with self._lock:
+                cursor = self._connection.execute(
+                    "SELECT record_hash FROM audit_log ORDER BY rowid DESC LIMIT 1"
+                )
+                row = cursor.fetchone()
+                previous_hash = row[0] if row else None
+
+                # Compute current hash
+                hasher = hashlib.sha256()
+                if previous_hash:
+                    hasher.update(previous_hash.encode("utf-8"))
+                hasher.update(payload_str.encode("utf-8"))
+                record_hash = hasher.hexdigest()
+
+                self._connection.execute(
+                    _INSERT_SQL,
+                    (
+                        record.audit_id,
+                        record.timestamp.isoformat(),
+                        record.event_id,
+                        record.payment_id,
+                        payload_str,
+                        previous_hash,
+                        record_hash,
+                    ),
+                )
+                self._connection.commit()
         except Exception as exc:  # noqa: BLE001
             logger.warning("Audit append failed: %s", exc)
             try:
@@ -303,6 +328,82 @@ class AuditLogger:
         row = self._connection.execute(sql, params).fetchone()
         return int(row[0]) if row else 0
 
+    def get_approved_payment_history(
+        self, customer_id: str, *, limit: int = 5
+    ) -> ApprovedPaymentHistory:
+        """Return a redacted aggregate history suitable for model context.
+
+        The audit log stores only a stable pseudonymous customer reference.
+        This method never returns the underlying rows or customer identifier;
+        it exposes bounded counts and recent outcome/category values only.
+        """
+        customer_ref = _pseudonymise(customer_id)
+        if not customer_ref:
+            return ApprovedPaymentHistory()
+
+        safe_limit = max(1, min(int(limit), 20))
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT payload FROM audit_log "
+                "WHERE json_extract(payload, '$.customer_ref') = ? "
+                "ORDER BY rowid DESC LIMIT ?",
+                (customer_ref, safe_limit),
+            ).fetchall()
+
+        payloads = [json.loads(row[0]) for row in rows]
+        recovered_amount = sum(
+            int(payload.get("amount_recovered") or 0)
+            for payload in payloads
+            if isinstance(payload.get("amount_recovered"), (int, float))
+        )
+        outcomes = [
+            str(payload.get("final_outcome"))
+            for payload in payloads
+            if payload.get("final_outcome")
+        ]
+        recovery_outcomes = {"recovered", "pending", "execution_failed"}
+        return ApprovedPaymentHistory(
+            prior_event_count=len(payloads),
+            successful_payment_count=sum(
+                1 for outcome in outcomes if outcome == "recovered"
+            ),
+            failed_payment_count=sum(
+                1 for outcome in outcomes if outcome != "recovered"
+            ),
+            recovered_amount=max(0, recovered_amount),
+            prior_recovery_attempts=sum(
+                1 for outcome in outcomes if outcome in recovery_outcomes
+            ),
+            last_outcome=outcomes[0] if outcomes else None,
+            last_failure_category=(
+                payloads[0].get("classification_category")
+                if payloads
+                else None
+            ),
+            recent_outcomes=outcomes[:5],
+        )
+
+    def export_csv(self) -> str:
+        """Export the full audit log as a CSV string."""
+        import csv
+        import io
+
+        output = io.StringIO()
+        writer = csv.writer(output)
+
+        # Write header
+        writer.writerow(["rowid", "audit_id", "recorded_at", "event_id", "payment_id", "previous_hash", "record_hash", "final_outcome"])
+
+        cursor = self._connection.execute(
+            "SELECT rowid, audit_id, recorded_at, event_id, payment_id, previous_hash, record_hash, json_extract(payload, '$.final_outcome') "
+            "FROM audit_log ORDER BY rowid ASC"
+        )
+
+        for row in cursor.fetchall():
+            writer.writerow(row)
+
+        return output.getvalue()
+
     def close(self) -> None:
         self._connection.close()
 
@@ -313,6 +414,7 @@ class AuditLogger:
         now: datetime,
         payment_event: FailedTransactionEvent | None,
         classification: ClassificationResult | None,
+        recommendation: RecoveryRecommendation | None,
         policy_decision: PolicyDecision | None,
         reasoning: ReasoningResult | None,
         execution: ExecutionResult | None,
@@ -365,6 +467,53 @@ class AuditLogger:
             ),
             classification_reason=(
                 classification.reason if classification is not None else None
+            ),
+            recommendation_success=(
+                recommendation.success if recommendation is not None else None
+            ),
+            recommendation_model=(
+                recommendation.model_id if recommendation is not None else None
+            ),
+            recommendation_latency_ms=(
+                recommendation.latency_ms if recommendation is not None else None
+            ),
+            recommendation_prompt_version=(
+                recommendation.prompt_version if recommendation is not None else None
+            ),
+            recommendation_revenue_at_risk=(
+                recommendation.revenue_at_risk if recommendation is not None else None
+            ),
+            recommendation_risk_score=(
+                recommendation.risk_score if recommendation is not None else None
+            ),
+            recommendation_suggested_cause=(
+                recommendation.suggested_cause.value
+                if recommendation is not None and recommendation.suggested_cause is not None
+                else None
+            ),
+            recommendation_suggested_action=(
+                recommendation.suggested_action.value
+                if recommendation is not None and recommendation.suggested_action is not None
+                else None
+            ),
+            recommendation_confidence=(
+                recommendation.confidence if recommendation is not None else None
+            ),
+            recommendation_evidence=(
+                recommendation.evidence if recommendation is not None else []
+            ),
+            recommendation_status=(
+                policy_decision.recommendation_status
+                if policy_decision is not None
+                else None
+            ),
+            recommendation_is_fallback=(
+                recommendation.is_fallback if recommendation is not None else None
+            ),
+            recommendation_fallback_reason=(
+                recommendation.fallback_reason.value
+                if recommendation is not None and recommendation.fallback_reason is not None
+                else None
             ),
             policy_action=(
                 policy_decision.action.value if policy_decision is not None else None

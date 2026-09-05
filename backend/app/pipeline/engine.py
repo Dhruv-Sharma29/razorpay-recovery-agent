@@ -21,6 +21,12 @@ from app.persistence.store import RecoveryStateStore
 from app.pipeline.result import PipelineResult
 from app.policy.engine import RecoveryPolicyEngine
 from app.policy.result import PolicyDecision
+from app.recommendation.engine import RecoveryRecommender
+from app.recommendation.result import (
+    ApprovedPaymentHistory,
+    RecoveryRecommendation,
+    RecommendationFallbackReason,
+)
 from app.reasoning.engine import RecoveryReasoner
 from app.reasoning.result import ReasoningResult
 
@@ -44,6 +50,7 @@ class RecoveryPipeline:
         escalation_handler: EscalationHandler,
         audit_logger: AuditLogger,
         state_store: RecoveryStateStore | None = None,
+        recommender: RecoveryRecommender | None = None,
     ) -> None:
         self.classifier = classifier
         self.policy_engine = policy_engine
@@ -51,6 +58,7 @@ class RecoveryPipeline:
         self.executor = executor
         self.escalation_handler = escalation_handler
         self.audit_logger = audit_logger
+        self.recommender = recommender
         # When present, actions carrying a policy cooldown are persisted as
         # scheduled jobs instead of running immediately.
         self.state_store = state_store
@@ -64,6 +72,7 @@ class RecoveryPipeline:
         event_id = getattr(payment_event, "event_id", "unknown")
 
         classification = None
+        recommendation = None
         policy_decision = None
         reasoning = None
         execution = None
@@ -81,13 +90,42 @@ class RecoveryPipeline:
             except Exception as exc:
                 logger.warning("Pipeline: Classification boundary failed: %s", exc)
 
-            # 2. Policy Evaluation
+            # 2. AI recommendation (advisory only)
+            # The classifier runs independently first so model output always
+            # has a deterministic validation baseline.
+            if self.recommender is not None:
+                try:
+                    approved_history = self._approved_payment_history(payment_event)
+                    recommendation = self.recommender.recommend(
+                        payment_event, classification, approved_history
+                    )
+                except Exception as exc:
+                    logger.warning("Pipeline: Recommendation boundary failed: %s", exc)
+                    recommendation = RecoveryRecommendation(
+                        success=False,
+                        revenue_at_risk=False,
+                        risk_score=0.0,
+                        suggested_cause=(
+                            classification.category if classification is not None else None
+                        ),
+                        suggested_action=None,
+                        confidence=0.0,
+                        evidence=["Recommendation service failed closed"],
+                        model_id="pipeline_fallback",
+                        is_fallback=True,
+                        fallback_reason=RecommendationFallbackReason.PIPELINE_FAILURE,
+                        error=str(exc),
+                    )
+
+            # 3. Policy Evaluation
             try:
-                policy_decision = self.policy_engine.evaluate(payment_event, classification)
+                policy_decision = self.policy_engine.evaluate(
+                    payment_event, classification, recommendation
+                )
             except Exception as exc:
                 logger.warning("Pipeline: Policy boundary failed: %s", exc)
 
-            # 3. Reasoning Layer
+            # 4. Reasoning Layer
             try:
                 reasoning = self.reasoner.analyze(payment_event, classification, policy_decision)
             except Exception as exc:
@@ -108,7 +146,7 @@ class RecoveryPipeline:
                     error=str(exc)
                 )
 
-            # 4. Execution
+            # 5. Execution
             if policy_decision and policy_decision.automatic_recovery_allowed:
                 cooldown = getattr(policy_decision, "cooldown_seconds", 0) or 0
                 defer = cooldown > 0 and self.state_store is not None
@@ -149,7 +187,7 @@ class RecoveryPipeline:
                 # Do NOT execute if policy denies, is missing, or is malformed.
                 pass
 
-        # 5. Escalation Evaluation
+        # 6. Escalation Evaluation
         try:
             escalation = self.escalation_handler.handle(
                 payment_event,
@@ -162,12 +200,13 @@ class RecoveryPipeline:
         except Exception as exc:
             logger.warning("Pipeline: Escalation boundary failed: %s", exc)
 
-        # 6. Audit
+        # 7. Audit
         audit_write = None
         try:
             audit_write = self.audit_logger.record(
                 payment_event,
                 classification=classification,
+                recommendation=recommendation,
                 policy_decision=policy_decision,
                 reasoning=reasoning,
                 execution=execution,
@@ -201,6 +240,7 @@ class RecoveryPipeline:
             payment_id=payment_id,
             event_id=event_id,
             classification=classification,
+            recommendation=recommendation,
             policy_decision=policy_decision,
             reasoning=reasoning,
             execution=execution,
@@ -210,6 +250,20 @@ class RecoveryPipeline:
             error=error_msg,
             timestamp=now,
         )
+
+    def _approved_payment_history(
+        self, payment_event: FailedTransactionEvent
+    ) -> ApprovedPaymentHistory | None:
+        """Fetch only bounded, redacted history for the advisory model."""
+        provider = getattr(self.audit_logger, "get_approved_payment_history", None)
+        if not callable(provider):
+            return None
+        try:
+            history = provider(payment_event.customer_id)
+            return history if isinstance(history, ApprovedPaymentHistory) else None
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Pipeline: approved history unavailable: %s", exc)
+            return None
 
     def process_batch(
         self, events: list[FailedTransactionEvent], max_workers: int = 5
@@ -223,16 +277,32 @@ class RecoveryPipeline:
         
         results: list[PipelineResult | None] = []
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            def _safe_process(ev: FailedTransactionEvent) -> PipelineResult | None:
+                try:
+                    return self.process(ev)
+                except Exception as exc:
+                    logger.exception("Pipeline: fatal error processing event %s: %s", ev.event_id, exc)
+                    return PipelineResult(
+                        payment_id=ev.razorpay_payment_id,
+                        event_id=ev.event_id,
+                        classification=None,
+                        policy_decision=None,
+                        reasoning=None,
+                        execution=None,
+                        escalation=None,
+                        audit_write=None,
+                        final_outcome=AuditOutcome.AUDIT_FAILED,
+                        error=str(exc),
+                        timestamp=datetime.now(timezone.utc),
+                    )
+
             # Map events to process() in parallel while preserving order
-            futures = [executor.submit(self.process, event) for event in events]
+            futures = [executor.submit(_safe_process, event) for event in events]
             for future in futures:
                 try:
                     results.append(future.result())
                 except Exception as exc:
-                    logger.error("Pipeline: batch item failed: %s", exc)
-                    # We could append a FAILED PipelineResult, but process() catches most
-                    # things. If something escapes process(), we append None so caller 
-                    # can filter it out, just like the old loop's `continue`.
+                    logger.error("Pipeline: batch item future failed: %s", exc)
                     results.append(None)
                     
         return results

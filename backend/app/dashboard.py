@@ -19,7 +19,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel, Field, ValidationError
 
 from app.config import settings
@@ -35,13 +35,20 @@ from app.ingestion.generator import generate_dataset
 from app.persistence.store import RecoveryStateStore
 from app.scheduler import run_due_jobs
 from app.pipeline.engine import RecoveryPipeline
+from app.recommendation.engine import RecoveryRecommender
 from app.pipeline.result import PipelineResult
 from app.policy.engine import RecoveryPolicyEngine
 from app.reasoning.engine import RecoveryReasoner
 
+from app.auth import get_api_key
+
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
+router = APIRouter(
+    prefix="/api/dashboard",
+    tags=["dashboard"],
+    dependencies=[Depends(get_api_key)]
+)
 
 # ---------------------------------------------------------------------------
 # Shared pipeline instance (in-memory SQLite, mock executor)
@@ -72,6 +79,7 @@ def _make_executor(state_store=None):
 _pipeline = RecoveryPipeline(
     classifier=FailureClassifier(),
     policy_engine=RecoveryPolicyEngine(),
+    recommender=RecoveryRecommender(),
     reasoner=RecoveryReasoner(),
     executor=_make_executor(state_store=_state_store),
     escalation_handler=EscalationHandler(),
@@ -87,6 +95,7 @@ _pipeline = RecoveryPipeline(
 _fast_pipeline = RecoveryPipeline(
     classifier=FailureClassifier(),
     policy_engine=RecoveryPolicyEngine(),
+    recommender=RecoveryRecommender(nim_api_key=""),
     reasoner=RecoveryReasoner(nim_api_key=""),
     executor=_make_executor(state_store=_state_store),
     escalation_handler=EscalationHandler(),
@@ -99,6 +108,7 @@ _fast_pipeline = RecoveryPipeline(
 _worker_pipeline = RecoveryPipeline(
     classifier=FailureClassifier(),
     policy_engine=RecoveryPolicyEngine(),
+    recommender=RecoveryRecommender(),
     reasoner=RecoveryReasoner(),
     executor=_make_executor(state_store=_state_store),
     escalation_handler=EscalationHandler(),
@@ -129,6 +139,20 @@ class DashboardResponse(BaseModel):
         default=None, description="Classifier reason"
     )
 
+    # AI recommendation (advisory; never authorization)
+    recommendation_success: bool | None = Field(default=None)
+    revenue_at_risk: bool | None = Field(default=None)
+    risk_score: float | None = Field(default=None, ge=0.0, le=1.0)
+    ai_suggested_cause: str | None = Field(default=None)
+    ai_suggested_action: str | None = Field(default=None)
+    ai_confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    recommendation_status: str | None = Field(default=None)
+    recommendation_reason: str | None = Field(default=None)
+    recommendation_model: str | None = Field(default=None)
+    recommendation_latency_ms: int | None = Field(default=None, ge=0)
+    recommendation_is_fallback: bool | None = Field(default=None)
+    recommendation_fallback_reason: str | None = Field(default=None)
+
     # Policy (projected as-is from the pipeline)
     policy_action: str | None = Field(
         default=None, description="Policy-prescribed action"
@@ -157,6 +181,7 @@ class DashboardResponse(BaseModel):
     reasoning_model: str | None = Field(
         default=None, description="Model that produced the explanation"
     )
+    reasoning_latency_ms: int | None = Field(default=None, ge=0)
     root_cause_plain: str | None = Field(
         default=None, description="Plain-language root cause"
     )
@@ -263,6 +288,70 @@ def _pipeline_to_response(result: PipelineResult, event: FailedTransactionEvent 
             if result.classification is not None
             else None
         ),
+        # AI recommendation
+        recommendation_success=(
+            result.recommendation.success
+            if result.recommendation is not None
+            else None
+        ),
+        revenue_at_risk=(
+            result.recommendation.revenue_at_risk
+            if result.recommendation is not None
+            else None
+        ),
+        risk_score=(
+            result.recommendation.risk_score
+            if result.recommendation is not None
+            else None
+        ),
+        ai_suggested_cause=(
+            result.recommendation.suggested_cause.value
+            if result.recommendation is not None
+            and result.recommendation.suggested_cause is not None
+            else None
+        ),
+        ai_suggested_action=(
+            result.recommendation.suggested_action.value
+            if result.recommendation is not None
+            and result.recommendation.suggested_action is not None
+            else None
+        ),
+        ai_confidence=(
+            result.recommendation.confidence
+            if result.recommendation is not None
+            else None
+        ),
+        recommendation_status=(
+            result.policy_decision.recommendation_status.value
+            if result.policy_decision is not None
+            else None
+        ),
+        recommendation_reason=(
+            result.policy_decision.recommendation_reason
+            if result.policy_decision is not None
+            else None
+        ),
+        recommendation_model=(
+            result.recommendation.model_id
+            if result.recommendation is not None
+            else None
+        ),
+        recommendation_latency_ms=(
+            result.recommendation.latency_ms
+            if result.recommendation is not None
+            else None
+        ),
+        recommendation_is_fallback=(
+            result.recommendation.is_fallback
+            if result.recommendation is not None
+            else None
+        ),
+        recommendation_fallback_reason=(
+            result.recommendation.fallback_reason.value
+            if result.recommendation is not None
+            and result.recommendation.fallback_reason is not None
+            else None
+        ),
         # Policy
         policy_action=(
             result.policy_decision.action.value
@@ -302,6 +391,9 @@ def _pipeline_to_response(result: PipelineResult, event: FailedTransactionEvent 
         ),
         reasoning_model=(
             result.reasoning.model_id if result.reasoning is not None else None
+        ),
+        reasoning_latency_ms=(
+            result.reasoning.latency_ms if result.reasoning is not None else None
         ),
         reasoning_from_cache=(
             result.reasoning.from_cache if result.reasoning is not None else None
@@ -500,6 +592,20 @@ def run_batch(
     reasoning_fallback = 0
     reasoning_customer_messages = 0
     reasoning_from_cache = 0
+    reasoning_latencies: list[int] = []
+    reasoning_prompt_version: str | None = None
+    reasoning_schema_version: str | None = None
+    recommendation_model_generated = 0
+    recommendation_fallback = 0
+    recommendation_risk_detected = 0
+    recommendation_latencies: list[int] = []
+    recommendation_prompt_version: str | None = None
+    recommendation_statuses = {
+        "accepted": 0,
+        "constrained": 0,
+        "rejected": 0,
+        "unavailable": 0,
+    }
     # Computed, never assumed: the reasoner copies policy_action_allowed
     # verbatim, so this must stay 0. A non-zero value would mean the safety
     # boundary had been breached, and is worth surfacing rather than hiding.
@@ -530,6 +636,25 @@ def run_batch(
         if result.audit_write is not None and result.audit_write.record is not None:
             audit_ids.append(result.audit_write.record.audit_id)
 
+        if result.recommendation is not None:
+            recommendation = result.recommendation
+            if recommendation.is_fallback:
+                recommendation_fallback += 1
+            else:
+                recommendation_model_generated += 1
+            if recommendation.revenue_at_risk:
+                recommendation_risk_detected += 1
+            if recommendation.latency_ms is not None:
+                recommendation_latencies.append(recommendation.latency_ms)
+            if recommendation.prompt_version and recommendation_prompt_version is None:
+                recommendation_prompt_version = recommendation.prompt_version
+            status = (
+                result.policy_decision.recommendation_status.value
+                if result.policy_decision is not None
+                else "unavailable"
+            )
+            recommendation_statuses[status] = recommendation_statuses.get(status, 0) + 1
+
         if result.reasoning is not None:
             if result.reasoning.is_fallback:
                 reasoning_fallback += 1
@@ -537,6 +662,12 @@ def run_batch(
                 reasoning_model_generated += 1
                 if result.reasoning.from_cache:
                     reasoning_from_cache += 1
+            if result.reasoning.latency_ms is not None:
+                reasoning_latencies.append(result.reasoning.latency_ms)
+            if result.reasoning.prompt_version and reasoning_prompt_version is None:
+                reasoning_prompt_version = result.reasoning.prompt_version
+            if result.reasoning.schema_version and reasoning_schema_version is None:
+                reasoning_schema_version = result.reasoning.schema_version
             if result.reasoning.customer_message:
                 reasoning_customer_messages += 1
             if (
@@ -658,6 +789,27 @@ def run_batch(
             "customer_messages": reasoning_customer_messages,
             "overrode_policy": reasoning_overrode_policy,
             "model": settings.nim_model,
+            "prompt_version": reasoning_prompt_version,
+            "schema_version": reasoning_schema_version,
+            "average_latency_ms": (sum(reasoning_latencies) / len(reasoning_latencies)) if reasoning_latencies else 0.0,
+        },
+        "recommendation": {
+            "mode": "model" if explain else "skipped",
+            "consultations": recommendation_model_generated + recommendation_fallback,
+            "model_generated": recommendation_model_generated,
+            "fallback": recommendation_fallback,
+            "risk_detected": recommendation_risk_detected,
+            "accepted": recommendation_statuses["accepted"],
+            "constrained": recommendation_statuses["constrained"],
+            "rejected": recommendation_statuses["rejected"],
+            "unavailable": recommendation_statuses["unavailable"],
+            "model": settings.nim_model,
+            "prompt_version": recommendation_prompt_version,
+            "average_latency_ms": (
+                sum(recommendation_latencies) / len(recommendation_latencies)
+                if recommendation_latencies
+                else 0.0
+            ),
         },
         "recovery_actions": {
             "retries_attempted": ra_retries_attempted,
@@ -828,12 +980,57 @@ def get_audit_log(
     except Exception as exc:
         logger.error("Audit log retrieval failed: %s", exc)
         raise HTTPException(
-            status_code=500, detail=f"Audit log error: {exc}"
+            status_code=500, detail="Could not read from audit database"
         ) from exc
 
     return AuditLogResponse(records=records, count=len(records), total=total)
 
 
+@router.get("/audit/export")
+def export_audit_log():
+    from fastapi.responses import PlainTextResponse
+
+    try:
+        csv_data = _audit_logger.export_csv()
+        return PlainTextResponse(content=csv_data, media_type="text/csv")
+    except Exception as exc:
+        logger.error("Audit log export failed: %s", exc)
+        raise HTTPException(status_code=500, detail="Could not export audit database") from exc
+
+@router.get("/telemetry")
+def get_telemetry() -> dict[str, Any]:
+    """Expose operational metrics for the recovery agent."""
+    try:
+        records = _audit_logger.list_records(limit=None)
+
+        total_records = len(records)
+        recovered_count = sum(1 for r in records if r.final_outcome == AuditOutcome.RECOVERED)
+        recovery_rate = (recovered_count / total_records) if total_records > 0 else 0.0
+
+        fallback_count = sum(1 for r in records if r.reasoning and r.reasoning.is_fallback)
+        total_reasoning = sum(1 for r in records if r.reasoning)
+        fallback_rate = (fallback_count / total_reasoning) if total_reasoning > 0 else 0.0
+
+        latencies = [r.reasoning.latency_ms for r in records if r.reasoning and r.reasoning.latency_ms is not None]
+        avg_latency = (sum(latencies) / len(latencies)) if latencies else 0.0
+
+        cache = getattr(_pipeline.reasoner, 'cache', None)
+        cache_hits = cache.hits if cache else 0
+        cache_misses = cache.misses if cache else 0
+        total_cache = cache_hits + cache_misses
+        cache_hit_rate = (cache_hits / total_cache) if total_cache > 0 else 0.0
+
+        return {
+            "recovery_rate": round(recovery_rate, 4),
+            "fallback_rate": round(fallback_rate, 4),
+            "cache_hit_rate": round(cache_hit_rate, 4),
+            "average_latency_ms": round(avg_latency, 2),
+            "total_processed": total_records,
+            "total_recovered": recovered_count,
+        }
+    except Exception as exc:
+        logger.error("Telemetry computation failed: %s", exc)
+        raise HTTPException(status_code=500, detail="Could not compute telemetry") from exc
 @router.post("/golden-path")
 def run_golden_path() -> DashboardResponse:
     """Run a fixed synthetic event through the full pipeline.

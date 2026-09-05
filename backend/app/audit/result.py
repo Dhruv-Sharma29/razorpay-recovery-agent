@@ -12,6 +12,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.policy.result import RecommendationStatus
+
 
 class AuditOutcome(str, Enum):
     """Final recorded outcome for a recovery-agent decision."""
@@ -47,6 +49,37 @@ class AuditRecord(BaseModel):
         default=None,
         description="Classifier reason, if available",
     )
+    recommendation_success: bool | None = Field(
+        default=None,
+        description="Whether the AI recommendation call returned valid output",
+    )
+    recommendation_model: str | None = Field(
+        default=None,
+        description="AI recommendation model or fallback reference",
+    )
+    recommendation_latency_ms: int | None = Field(default=None, ge=0)
+    recommendation_prompt_version: str | None = Field(default=None)
+    recommendation_revenue_at_risk: bool | None = Field(default=None)
+    recommendation_risk_score: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Model-reported revenue-risk score",
+    )
+    recommendation_suggested_cause: str | None = Field(default=None)
+    recommendation_suggested_action: str | None = Field(default=None)
+    recommendation_confidence: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+    )
+    recommendation_evidence: list[str] = Field(default_factory=list)
+    recommendation_status: RecommendationStatus | None = Field(
+        default=None,
+        description="How deterministic policy treated the AI recommendation",
+    )
+    recommendation_is_fallback: bool | None = Field(default=None)
+    recommendation_fallback_reason: str | None = Field(default=None)
     policy_action: str | None = Field(
         default=None,
         description="Policy action snapshot",
