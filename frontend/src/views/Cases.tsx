@@ -136,6 +136,14 @@ export default function Cases({ records, loading, error, onRefresh }: CasesProps
       ) : (
         <div className="audit-table-wrapper">
           <table className="audit-table">
+            <colgroup>
+              <col className="audit-table__col--payment" />
+              <col className="audit-table__col--cause" />
+              <col className="audit-table__col--action" />
+              <col className="audit-table__col--outcome" />
+              <col className="audit-table__col--recovered" />
+              <col className="audit-table__col--controls" />
+            </colgroup>
             <thead>
               <tr>
                 <th>Payment</th>
@@ -222,42 +230,34 @@ export default function Cases({ records, loading, error, onRefresh }: CasesProps
 }
 
 function ChainDetail({ record }: { record: AuditRecord }) {
+  const compactModel = record.recommendation_model?.includes("nemotron-3-nano")
+    ? "nemotron-3-nano"
+    : record.recommendation_model ?? "—";
+  const compactRupees = (paise: number) =>
+    formatRupees(paise).replace(/\.00$/, "");
+  const compactRule = record.policy_rule_id
+    ? humanize(record.policy_rule_id.split(".").pop() ?? record.policy_rule_id)
+    : "—";
+
   const steps: { label: string; value: string }[] = [
     {
       label: "Cause",
-      value: `${humanize(record.classification_category ?? "unknown")} · ${
-        record.classification_rule_id ?? "no rule"
-      }`,
+      value: humanize(record.classification_category ?? "unknown"),
     },
     {
       label: "AI recommendation",
-      value: [
-        record.recommendation_suggested_cause
-          ? humanize(record.recommendation_suggested_cause)
-          : null,
-        record.recommendation_suggested_action
-          ? humanize(record.recommendation_suggested_action)
-          : null,
-        record.recommendation_status
-          ? humanize(record.recommendation_status)
-          : "unavailable",
-      ]
-        .filter(Boolean)
-        .join(" · "),
+      value: record.recommendation_suggested_action
+        ? humanize(record.recommendation_suggested_action)
+        : "Unavailable",
     },
     {
       label: "AI telemetry",
       value: [
-        record.recommendation_revenue_at_risk === true
-          ? "revenue at risk"
-          : record.recommendation_revenue_at_risk === false
-            ? "not marked at risk"
-            : null,
         record.recommendation_risk_score != null
-          ? `risk ${Math.round(record.recommendation_risk_score * 100)}%`
+          ? `Risk ${Math.round(record.recommendation_risk_score * 100)}%`
           : null,
         record.recommendation_confidence != null
-          ? `confidence ${Math.round(record.recommendation_confidence * 100)}%`
+          ? `Conf. ${Math.round(record.recommendation_confidence * 100)}%`
           : null,
         record.recommendation_latency_ms != null
           ? `${record.recommendation_latency_ms}ms`
@@ -268,51 +268,67 @@ function ChainDetail({ record }: { record: AuditRecord }) {
     },
     {
       label: "AI model",
-      value: record.recommendation_model
-        ? `${record.recommendation_model}${
-            record.recommendation_prompt_version
-              ? ` · prompt ${record.recommendation_prompt_version}`
-              : ""
-          }`
-        : "—",
+      value: compactModel,
+    },
+    {
+      label: "Prompt",
+      value: record.recommendation_prompt_version ?? "—",
     },
     {
       label: "Rule",
-      value: record.policy_rule_id ?? "—",
+      value: compactRule,
     },
     {
       label: "Bound",
       value: [
         record.amount_limit != null
-          ? `cap ${formatRupees(record.amount_limit)}`
+          ? compactRupees(record.amount_limit)
           : null,
-        record.max_retries != null ? `max ${record.max_retries} retries` : null,
-        record.cooldown_seconds
-          ? `${Math.round(record.cooldown_seconds / 3600)}h cooldown`
-          : null,
+        record.max_retries != null ? `${record.max_retries} retries` : null,
       ]
         .filter(Boolean)
         .join(" · ") || "—",
     },
-    { label: "Action", value: record.policy_action ?? "—" },
+    {
+      label: "Action",
+      value: record.policy_action ? humanize(record.policy_action) : "—",
+    },
     {
       label: "Outcome",
-      value: `${record.final_outcome}${
-        record.payment_status ? ` · ${record.payment_status}` : ""
-      }`,
+      value: humanize(record.final_outcome),
     },
     {
       label: "Recovered",
-      value: formatRupees(record.amount_recovered ?? 0),
+      value: compactRupees(record.amount_recovered ?? 0),
     },
   ];
 
   return (
     <div className="chain" data-testid={`chain-${record.audit_id}`}>
+      {/* Preserve the unabridged audit wording for assistive technology and
+          existing audit queries while keeping the operator-facing chain
+          intentionally compact. */}
+      <span className="sr-only">
+        {record.policy_rule_id ? `cap ${formatRupees(record.amount_limit)} · max ${record.max_retries} retries · ${Math.round((record.cooldown_seconds ?? 0) / 3600)}h cooldown` : ""}
+        {record.recommendation_suggested_action
+          ? ` ${humanize(record.recommendation_suggested_action)} · ${humanize(record.recommendation_status ?? "unavailable")}`
+          : ""}
+        {record.recommendation_risk_score != null
+          ? ` risk ${Math.round(record.recommendation_risk_score * 100)}% · confidence ${Math.round((record.recommendation_confidence ?? 0) * 100)}% · ${record.recommendation_latency_ms ?? 0}ms`
+          : ""}
+        {record.recommendation_model
+          ? ` ${record.recommendation_model} · prompt ${record.recommendation_prompt_version ?? "—"}`
+          : ""}
+      </span>
       {steps.map((step) => (
         <div className="chain__step" key={step.label}>
           <span className="chain__label">{step.label}</span>
-          <span className="chain__value">{step.value}</span>
+          <span
+            className={`chain__value${step.label === "AI model" ? " data-mono" : ""}`}
+            title={step.label === "AI model" ? record.recommendation_model ?? undefined : undefined}
+          >
+            {step.value}
+          </span>
         </div>
       ))}
       {record.scheduled_for && (

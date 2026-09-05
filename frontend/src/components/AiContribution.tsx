@@ -18,6 +18,11 @@ export default function AiContribution({ summary }: AiContributionProps) {
   if (!summary || !r) return null;
 
   const skipped = r.mode === "skipped" && (!rec || rec.mode === "skipped");
+  // Keep the operator-facing label compact while preserving the complete model
+  // identifier in the DOM for inspection and native tooltip access.
+  const recommendationModel = rec?.model.includes("nemotron-3-nano")
+    ? "nemotron-3-nano"
+    : rec?.model;
 
   return (
     <>
@@ -27,7 +32,7 @@ export default function AiContribution({ summary }: AiContributionProps) {
         <div className="ai-card__grid">
           <div className="ai-metric">
             <span className="ai-metric__label">Consultations</span>
-            <span className="ai-metric__value data-mono">{r.consultations}</span>
+            <span className="ai-metric__value stat-tile__value">{r.consultations}</span>
             <span className="ai-metric__note">
               every signal that reached the reasoning stage
             </span>
@@ -35,7 +40,7 @@ export default function AiContribution({ summary }: AiContributionProps) {
 
           <div className="ai-metric">
             <span className="ai-metric__label">Real model answers</span>
-            <span className="ai-metric__value data-mono">
+            <span className="ai-metric__value stat-tile__value">
               {r.model_generated} of {r.consultations}
             </span>
             <span className="ai-metric__note">
@@ -45,7 +50,7 @@ export default function AiContribution({ summary }: AiContributionProps) {
 
           <div className="ai-metric">
             <span className="ai-metric__label">Chose the action</span>
-            <span className="ai-metric__value data-mono">
+            <span className="ai-metric__value stat-tile__value">
               {r.chose_action ?? 0}
             </span>
             <span className="ai-metric__note">
@@ -56,7 +61,7 @@ export default function AiContribution({ summary }: AiContributionProps) {
 
           <div className="ai-metric">
             <span className="ai-metric__label">Policy overrides — must be 0</span>
-            <span className="ai-metric__value data-mono">
+            <span className="ai-metric__value stat-tile__value">
               {r.overrode_policy}
             </span>
             <span className="ai-metric__note">
@@ -66,7 +71,7 @@ export default function AiContribution({ summary }: AiContributionProps) {
 
           <div className="ai-metric">
             <span className="ai-metric__label">Customer messages drafted</span>
-            <span className="ai-metric__value data-mono">
+            <span className="ai-metric__value stat-tile__value">
               {r.customer_messages}
             </span>
             <span className="ai-metric__note">
@@ -78,8 +83,11 @@ export default function AiContribution({ summary }: AiContributionProps) {
             <>
               <div className="ai-metric">
                 <span className="ai-metric__label">Recommendation model</span>
-                <span className="ai-metric__value data-mono">
-                  {rec.model}
+                <span
+                  className="ai-metric__value ai-metric__value--model stat-tile__value"
+                  title={rec.model}
+                >
+                  {recommendationModel}
                 </span>
                 <span className="ai-metric__note">
                   Prompt: {rec.prompt_version || "—"}
@@ -88,7 +96,7 @@ export default function AiContribution({ summary }: AiContributionProps) {
 
               <div className="ai-metric ai-metric--telemetry">
                 <span className="ai-metric__label">Recommendation latency</span>
-                <span className="ai-metric__value data-mono">
+                <span className="ai-metric__value ai-metric__value--latency stat-tile__value">
                   {rec.average_latency_ms
                     ? `${Math.round(rec.average_latency_ms)}ms avg`
                     : "—"}
@@ -100,8 +108,19 @@ export default function AiContribution({ summary }: AiContributionProps) {
 
               <div className="ai-metric">
                 <span className="ai-metric__label">Policy treatment</span>
-                <span className="ai-metric__value data-mono">
-                  {rec.accepted} accepted · {rec.constrained} constrained
+                <span className="ai-metric__value ai-metric__value--policy">
+                  <span className="sr-only">
+                    {rec.accepted} accepted · {rec.constrained} constrained
+                  </span>
+                  <span className="ai-policy__part">
+                    <strong className="ai-policy__number stat-tile__value">{rec.accepted}</strong>
+                    <span className="ai-policy__word">accepted</span>
+                  </span>
+                  <span className="ai-policy__separator">·</span>
+                  <span className="ai-policy__part">
+                    <strong className="ai-policy__number stat-tile__value">{rec.constrained}</strong>
+                    <span className="ai-policy__word">constrained</span>
+                  </span>
                 </span>
                 <span className="ai-metric__note">
                   {rec.rejected} rejected · {rec.unavailable} unavailable
@@ -113,7 +132,7 @@ export default function AiContribution({ summary }: AiContributionProps) {
           {r && !skipped && (
             <div className="ai-metric ai-metric--telemetry">
               <span className="ai-metric__label">Model Telemetry</span>
-              <span className="ai-metric__value data-mono">
+              <span className="ai-metric__value ai-metric__value--telemetry stat-tile__value">
                 {r.average_latency_ms ? `${Math.round(r.average_latency_ms)}ms avg` : "—"}
               </span>
               <span className="ai-metric__note">
