@@ -21,6 +21,7 @@ class PolicyAction(str, Enum):
     TRIGGER_REAUTHORIZATION = "trigger_reauthorization"
     SWITCH_PAYMENT_METHOD = "switch_payment_method"
     RESEND_AUTH_PROMPT = "resend_auth_prompt"
+    SEND_PAYMENT_REMINDER = "send_payment_reminder"
     ESCALATE = "escalate"
     NO_ACTION = "no_action"
 
@@ -93,6 +94,25 @@ class PolicyDecision(BaseModel):
     amount: int = Field(
         ...,
         description="Transaction amount in paise",
+    )
+    permitted_actions: list[PolicyAction] = Field(
+        default_factory=list,
+        description=(
+            "Every action the policy authorises for this decision. The "
+            "advisor may pick among these; it can never add to the set, and "
+            "it can never change whether recovery is allowed at all."
+        ),
+    )
+
+    cooldown_min_seconds: int = Field(
+        default=0,
+        ge=0,
+        description="Earliest the advisor may bring a retry forward to.",
+    )
+    cooldown_max_seconds: int = Field(
+        default=0,
+        ge=0,
+        description="Latest the advisor may push a retry out to.",
     )
     cooldown_seconds: int = Field(
         default=0,

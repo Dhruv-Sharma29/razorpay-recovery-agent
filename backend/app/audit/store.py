@@ -282,6 +282,50 @@ class AuditLogger:
             record=record,
         )
 
+    def outcome_stats(self, min_observations: int = 1) -> list[dict[str, Any]]:
+        """What has actually worked, per failure cause and action.
+
+        Read-only aggregate over the append-only log — the record of what the
+        system really did, not an assumption about what should work. This is
+        what lets the advisor choose an action on evidence instead of guessing.
+
+        Only terminal payment outcomes count. A duplicate or a policy-rejected
+        execution says nothing about whether an action recovers money, so
+        counting them would bias the rate.
+        """
+        sql = """
+        SELECT
+            json_extract(payload, '$.classification_category') AS category,
+            json_extract(payload, '$.policy_action')           AS action,
+            SUM(CASE WHEN json_extract(payload, '$.execution_status') = 'success'
+                     THEN 1 ELSE 0 END)                        AS recovered,
+            COUNT(*)                                           AS attempts
+        FROM audit_log
+        WHERE json_extract(payload, '$.execution_status') IN ('success', 'failed')
+          AND category IS NOT NULL
+          AND action IS NOT NULL
+        GROUP BY category, action
+        HAVING attempts >= ?
+        ORDER BY attempts DESC
+        """
+        try:
+            rows = self._connection.execute(sql, (min_observations,)).fetchall()
+        except sqlite3.Error as exc:  # noqa: BLE001
+            # Statistics are an optimisation. Losing them must never stop a
+            # payment being recovered.
+            logger.warning("Audit outcome_stats failed: %s", exc)
+            return []
+        return [
+            {
+                "category": row[0],
+                "action": row[1],
+                "recovered": row[2],
+                "attempts": row[3],
+                "success_rate": round(row[2] / row[3], 3) if row[3] else 0.0,
+            }
+            for row in rows
+        ]
+
     def list_records(
         self,
         *,

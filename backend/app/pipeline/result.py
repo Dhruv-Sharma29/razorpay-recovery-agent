@@ -14,6 +14,7 @@ from app.classifier.result import ClassificationResult
 from app.escalation.result import EscalationResult
 from app.executor.result import ExecutionResult
 from app.models.payment_event import FailedTransactionEvent
+from app.outreach.dispatcher import OutreachResult
 from app.policy.result import PolicyDecision
 from app.recommendation.result import RecoveryRecommendation
 from app.reasoning.result import ReasoningResult
@@ -60,6 +61,28 @@ class PipelineResult(BaseModel):
         description="Result of the audit log append operation",
     )
     
+    outreach: "OutreachResult | None" = Field(
+        default=None,
+        description="Customer contact attempt, when the action required one",
+    )
+
+    delay_source: str = Field(
+        default="policy",
+        description=(
+            "Who chose the cooldown: 'policy' for the category default, "
+            "'model' when the advisor moved it inside the permitted window."
+        ),
+    )
+
+    action_source: str = Field(
+        default="policy",
+        description=(
+            "Who chose the action: 'policy' for the prescribed default, "
+            "'model' when the advisor picked a different but equally "
+            "authorised action from the permitted set."
+        ),
+    )
+
     final_outcome: AuditOutcome = Field(
         ...,
         description="The final state of the transaction after processing",

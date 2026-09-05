@@ -2062,3 +2062,355 @@ body {
     grid-column: 1 / -1;
   }
 }
+
+.funnel__contact {
+  margin-top: 0.5rem;
+  font-size: 0.76rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+/* --- What the agent refused to do -------------------------------------- */
+/* Restates the batch's escalations as the retries a naive agent would have
+   burned. Reads as a list of costs avoided, not a table of metrics. */
+.restraint__lede {
+  margin: 0.35rem 0 0.9rem;
+  font-size: 0.78rem;
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+
+.restraint__lede strong {
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.restraint__list {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.restraint__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.5rem 0;
+  border-top: 1px solid var(--border-default);
+}
+
+.restraint__row:first-child {
+  border-top: none;
+}
+
+.restraint__label {
+  min-width: 0;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
+.restraint__value {
+  flex: none;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Live run feed ------------------------------------------------------ */
+/* Rows land one at a time as the pipeline finishes each case, so the list is
+   sized to stay put rather than push the rest of the column around. */
+.live-feed__progress {
+  float: right;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.live-feed__list {
+  margin: 0.75rem 0 0;
+  padding: 0;
+  list-style: none;
+  max-height: 17rem;
+  overflow-y: auto;
+}
+
+.live-feed__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.1rem 0.6rem;
+  align-items: baseline;
+  padding: 0.45rem 0 0.45rem 0.6rem;
+  border-left: 3px solid var(--border-default);
+  border-bottom: 1px solid var(--border-default);
+}
+
+.live-feed__row:last-child {
+  border-bottom: none;
+}
+
+.live-feed__row[data-tone="ok"] {
+  border-left-color: var(--signal-ok);
+}
+
+.live-feed__row[data-tone="held"] {
+  border-left-color: var(--signal-hold);
+}
+
+.live-feed__row[data-tone="run"] {
+  border-left-color: var(--accent);
+}
+
+.live-feed__id {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.74rem;
+  color: var(--text-secondary);
+}
+
+.live-feed__amount {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.live-feed__cause {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.8rem;
+  color: var(--text-primary);
+}
+
+.live-feed__verdict {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-align: right;
+}
+
+.live-feed__status {
+  margin: 0.6rem 0 0;
+  font-size: 0.74rem;
+  color: var(--text-secondary);
+}
+
+/* Respect a reduced-motion preference: rows appear without the slide-in. */
+@media (prefers-reduced-motion: no-preference) {
+  .live-feed__row {
+    animation: live-feed-in 220ms ease-out;
+  }
+
+  @keyframes live-feed-in {
+    from {
+      opacity: 0;
+      transform: translateY(-4px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+}
+
+/* --- Agent evidence: what it learned, and whether it earns its place ---- */
+.agent__evidence {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.learning__lede,
+.ab__lede {
+  margin: 0.35rem 0 0.9rem;
+  font-size: 0.78rem;
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+
+.learning__empty {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+
+.learning__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+/* Cause and action name the row; the bar carries the comparison. */
+.learning__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "cause  rate"
+    "action n"
+    "bar    bar";
+  gap: 0.15rem 0.6rem;
+  align-items: baseline;
+  padding-bottom: 0.55rem;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.learning__row:last-child {
+  border-bottom: none;
+}
+
+.learning__cause {
+  grid-area: cause;
+  min-width: 0;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.learning__action {
+  grid-area: action;
+  min-width: 0;
+  font-size: 0.74rem;
+  color: var(--text-secondary);
+}
+
+.learning__rate {
+  grid-area: rate;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.learning__n {
+  grid-area: n;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.learning__bar {
+  grid-area: bar;
+  display: block;
+  height: 5px;
+  margin-top: 0.35rem;
+  border-radius: 999px;
+  background: var(--bg-subtle);
+  overflow: hidden;
+}
+
+.learning__fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--signal-ok);
+}
+
+/* --- A/B comparison ----------------------------------------------------- */
+.ab__table {
+  width: 100%;
+  margin-top: 0.9rem;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+}
+
+.ab__table th,
+.ab__table td {
+  padding: 0.45rem 0.4rem;
+  text-align: right;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.ab__table thead th {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+}
+
+.ab__table tbody th[scope="row"],
+.ab__table thead th:first-child {
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.ab__delta th,
+.ab__delta td {
+  border-bottom: none;
+  border-top: 2px solid var(--border-strong);
+  font-weight: 700;
+}
+
+/* A regression must read as one, not be softened into a neutral number. */
+.ab__delta td[data-tone="up"] {
+  color: var(--signal-ok);
+}
+
+.ab__delta td[data-tone="down"] {
+  color: var(--signal-stop);
+}
+
+.ab__note {
+  margin: 0.7rem 0 0;
+  font-size: 0.74rem;
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+
+.ab__note--warn {
+  color: var(--signal-hold);
+}
+
+/* --- Time to recovery --------------------------------------------------- */
+.ttr__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.ttr__metric {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.ttr__label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+}
+
+.ttr__value {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+.ttr__note {
+  margin: 0.8rem 0 0;
+  font-size: 0.72rem;
+  line-height: 1.55;
+  color: var(--text-secondary);
+}

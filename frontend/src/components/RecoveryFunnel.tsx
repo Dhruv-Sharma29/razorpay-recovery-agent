@@ -10,6 +10,8 @@ import type { FunnelCounts } from "../types/dashboard";
 
 interface RecoveryFunnelProps {
   funnel: FunnelCounts | null;
+  /** Real customer contact attempts, so "Contacted" can be honest. */
+  outreach?: { attempted: number; delivered: number } | null;
 }
 
 const STAGES: { key: keyof FunnelCounts; label: string; definition: string }[] = [
@@ -26,9 +28,9 @@ const STAGES: { key: keyof FunnelCounts; label: string; definition: string }[] =
   },
   {
     key: "contacted",
-    label: "Contacted",
+    label: "Intervened",
     definition:
-      "An action was actually attempted: executed inline, or a deferred retry the worker ran.",
+      "An action was actually attempted: executed inline, or a deferred retry the worker ran. Most are silent retries against the payment rail — see the contact line below for how many actually reached a customer.",
   },
   {
     key: "confirmed_recovered",
@@ -37,7 +39,10 @@ const STAGES: { key: keyof FunnelCounts; label: string; definition: string }[] =
   },
 ];
 
-export default function RecoveryFunnel({ funnel }: RecoveryFunnelProps) {
+export default function RecoveryFunnel({
+  funnel,
+  outreach,
+}: RecoveryFunnelProps) {
   const raw = funnel?.raw ?? 0;
 
   return (
@@ -67,6 +72,20 @@ export default function RecoveryFunnel({ funnel }: RecoveryFunnelProps) {
       <p className="funnel__caption">
         Each stage is a real filter, not a restatement of the one above it.
       </p>
+
+      {outreach && (
+        <p className="funnel__contact" data-testid="funnel-outreach">
+          Of those, <strong>{outreach.delivered}</strong> reached a customer
+          {outreach.attempted > outreach.delivered && (
+            <>
+              {" "}
+              ({outreach.attempted - outreach.delivered} withheld — no
+              compliant message to send)
+            </>
+          )}
+          . The rest were silent retries against the payment rail.
+        </p>
+      )}
 
       <dl className="funnel__definitions">
         {STAGES.map((stage) => (

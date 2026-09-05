@@ -13,13 +13,19 @@ All recovery decisions come from the existing pipeline components.
 
 from __future__ import annotations
 
+import itertools
+import json
 import logging
+import queue
 import random
+import threading
 import uuid
+from collections.abc import Callable, Iterator
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query, Depends
+from fastapi import APIRouter, HTTPException, Query, Request, Depends
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, ValidationError
 
 from app.config import settings
@@ -32,9 +38,15 @@ from app.executor.mock import MockExecutor
 from app.models.payment_event import FailedTransactionEvent
 from app.evaluation.harness import classify_funnel_stage
 from app.ingestion.generator import generate_dataset
+from app.outreach import SimulatedOutreachDispatcher
 from app.persistence.store import RecoveryStateStore
 from app.scheduler import run_due_jobs
 from app.pipeline.engine import RecoveryPipeline
+from app.razorpay.webhook import (
+    WebhookRejected,
+    parse_failed_payment,
+    verify_signature,
+)
 from app.recommendation.engine import RecoveryRecommender
 from app.pipeline.result import PipelineResult
 from app.policy.engine import RecoveryPolicyEngine
@@ -71,7 +83,9 @@ def _make_executor(state_store=None):
     if settings.executor_mode == "razorpay_test":
         from app.razorpay.executor import RazorpayTestExecutor
         return RazorpayTestExecutor(state_store=state_store)
-    return MockExecutor(state_store=state_store)
+    # realistic_capture on: an authorised action does not always land, so
+    # the reported recovery rate is believable rather than a flat 100%.
+    return MockExecutor(state_store=state_store, realistic_capture=True)
 
 
 # Request pipeline: carries the state store, so an action with a policy
@@ -85,6 +99,7 @@ _pipeline = RecoveryPipeline(
     escalation_handler=EscalationHandler(),
     audit_logger=_audit_logger,
     state_store=_state_store,
+    outreach=SimulatedOutreachDispatcher(),
 )
 
 # Batch pipeline: identical to the request pipeline except its reasoner has
@@ -101,6 +116,23 @@ _fast_pipeline = RecoveryPipeline(
     escalation_handler=EscalationHandler(),
     audit_logger=_audit_logger,
     state_store=_state_store,
+    outreach=SimulatedOutreachDispatcher(),
+)
+
+# Control arm for A/B: identical to the request pipeline except the advisor
+# is not allowed to choose the action, so the two arms differ by exactly one
+# variable.
+_control_pipeline = RecoveryPipeline(
+    classifier=FailureClassifier(),
+    policy_engine=RecoveryPolicyEngine(),
+    reasoner=RecoveryReasoner(),
+    executor=_make_executor(_state_store),
+    escalation_handler=EscalationHandler(),
+    audit_logger=_audit_logger,
+    state_store=_state_store,
+    outreach=SimulatedOutreachDispatcher(),
+    recommender=RecoveryRecommender(),
+    allow_model_action_choice=False,
 )
 
 # Worker pipeline: deliberately has NO state store, so a due job actually
@@ -532,6 +564,30 @@ def run_scheduled(
     return payload
 
 
+def _timing_summary(delays: list[int]) -> dict[str, Any]:
+    """How fast the money came back, not just how much.
+
+    Median is reported alongside the mean because a single 72h receivable
+    reminder would otherwise dominate a batch of instant retries.
+    """
+    if not delays:
+        return {"recovered_count": 0, "median_seconds": None, "max_seconds": None,
+                "instant_count": 0}
+    ordered = sorted(delays)
+    mid = len(ordered) // 2
+    median = (
+        ordered[mid]
+        if len(ordered) % 2
+        else (ordered[mid - 1] + ordered[mid]) // 2
+    )
+    return {
+        "recovered_count": len(ordered),
+        "median_seconds": median,
+        "max_seconds": ordered[-1],
+        "instant_count": sum(1 for d in ordered if d == 0),
+    }
+
+
 def _fresh_batch(count: int, seed: int | None = None) -> list[FailedTransactionEvent]:
     """Generate ``count`` synthetic failed events with brand-new identifiers.
 
@@ -582,11 +638,135 @@ def run_batch(
     Repeatable by design: every call generates new event ids, so runs
     accumulate rather than deduplicating against earlier ones.
     """
-    started = datetime.now(timezone.utc)
-    events = _fresh_batch(count, seed)
+    return _execute_batch(
+        count,
+        seed,
+        run_scheduler,
+        explain,
+        _pipeline if explain else _fast_pipeline,
+    )
+
+
+# A sentinel that cannot collide with a progress record, so the SSE drain loop
+# can tell "batch finished" from "no case ready yet".
+_STREAM_DONE = object()
+
+
+@router.get("/run-batch/stream")
+def run_batch_stream(
+    count: int = Query(10, ge=1, le=200),
+    seed: int | None = Query(None),
+    run_scheduler: bool = Query(True),
+    explain: bool = Query(False),
+) -> StreamingResponse:
+    """Stream a batch as server-sent events, one frame per case.
+
+    Same work and same summary as ``/run-batch`` — the difference is when the
+    caller learns about it. With ``explain=true`` each case costs an LLM round
+    trip, so a batch that would otherwise be a long silence becomes a feed
+    that fills in as the agent works through it.
+    """
+    frames: queue.Queue[Any] = queue.Queue()
     pipeline = _pipeline if explain else _fast_pipeline
 
+    def _run() -> None:
+        try:
+            summary = _execute_batch(
+                count, seed, run_scheduler, explain, pipeline, on_event=frames.put
+            )
+            frames.put(("summary", summary))
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Streaming batch failed: %s", exc)
+            frames.put(("error", {"message": str(exc)}))
+        finally:
+            # Always released, so a failed batch closes the stream rather than
+            # leaving the client waiting on a connection that will never speak.
+            frames.put(_STREAM_DONE)
+
+    worker = threading.Thread(target=_run, name="run-batch-stream", daemon=True)
+    worker.start()
+
+    def _frames() -> Iterator[str]:
+        yield _sse("start", {"count": count, "seed": seed, "explain": explain})
+        while True:
+            frame = frames.get()
+            if frame is _STREAM_DONE:
+                break
+            if isinstance(frame, tuple):
+                name, payload = frame
+                yield _sse(name, payload)
+            else:
+                yield _sse("case", frame)
+        worker.join(timeout=5)
+
+    return StreamingResponse(
+        _frames(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            # Proxies that buffer would defeat the entire point of streaming.
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+def _sse(event: str, data: Any) -> str:
+    """Encode one server-sent event frame."""
+    return f"event: {event}\ndata: {json.dumps(data, default=str)}\n\n"
+
+
+def _progress_record(
+    index: int,
+    total: int,
+    event: FailedTransactionEvent,
+    result: PipelineResult | None,
+) -> dict[str, Any]:
+    """One line of the live feed: what the agent decided about one payment.
+
+    Deliberately small — the full batch summary still arrives at the end, and
+    a progress frame that duplicated it would just be a slower response.
+    """
+    decision = result.policy_decision if result is not None else None
+    classification = result.classification if result is not None else None
+    execution = result.execution if result is not None else None
+    outcome = (
+        getattr(result.final_outcome, "value", None) if result is not None else None
+    )
+    return {
+        "index": index,
+        "total": total,
+        "payment_id": event.razorpay_payment_id,
+        "amount": event.amount,
+        "category": getattr(getattr(classification, "category", None), "value", None),
+        "action": getattr(getattr(decision, "action", None), "value", None),
+        "allowed": bool(decision.automatic_recovery_allowed) if decision else False,
+        "escalation_reason": getattr(
+            getattr(decision, "escalation_reason", None), "value", None
+        ),
+        "recovered": bool(execution is not None and execution.executed),
+        "outcome": outcome,
+    }
+
+
+def _execute_batch(
+    count: int,
+    seed: int | None,
+    run_scheduler: bool,
+    explain: bool,
+    pipeline: RecoveryPipeline,
+    on_event: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
+    """Run one batch through the given pipeline and summarise it.
+
+    ``on_event`` receives a small progress record as each case finishes, so a
+    caller can stream the run. It fires from a worker thread.
+    """
+    started = datetime.now(timezone.utc)
+    events = _fresh_batch(count, seed)
+
     attempted_amount = 0
+    recoverable_amount = 0
     recovered_amount = 0
     reasoning_model_generated = 0
     reasoning_fallback = 0
@@ -610,6 +790,26 @@ def run_batch(
     # verbatim, so this must stay 0. A non-zero value would mean the safety
     # boundary had been breached, and is worth surfacing rather than hiding.
     reasoning_overrode_policy = 0
+    # Times the advisor picked a different — but equally authorised —
+    # action from the policy's permitted set. This is the AI's one
+    # measurable effect on behaviour.
+    model_chose_action = 0
+    # A real contact attempt, not a synonym for "an action executed".
+    outreach_attempted = 0
+    outreach_delivered = 0
+    # Delay per recovered payment, in seconds. Inline actions land now; a
+    # deferred retry lands after its cooldown.
+    recovery_delays: list[int] = []
+    # What a naive "retry everything" agent would have done with the cases
+    # this one refused. Derived from the policy's own refusal reason, so it
+    # is a restatement of real decisions rather than a guess.
+    naive = {
+        "extra_attempts": 0,
+        "amount_chased_past_cap": 0,
+        "attempts_past_retry_cap": 0,
+        "blind_retries_on_unknown_cause": 0,
+        "non_retryable_retried": 0,
+    }
     audit_ids: list[str] = []
     outcomes: dict[str, int] = {}
     funnel = {"raw": 0, "needed_signal": 0, "contacted": 0, "confirmed_recovered": 0}
@@ -623,14 +823,57 @@ def run_batch(
     ra_execution_failed = 0
 
     # Process events in parallel via the pipeline's thread pool
-    results = pipeline.process_batch(events, max_workers=5)
+    progress_index = itertools.count(1)
+
+    def _report(
+        event: FailedTransactionEvent, result: PipelineResult | None
+    ) -> None:
+        """Emit one case's outcome the moment the pipeline finishes with it."""
+        if on_event is None:
+            return
+        on_event(_progress_record(next(progress_index), len(events), event, result))
+
+    results = pipeline.process_batch(
+        events, max_workers=5, on_result=_report if on_event else None
+    )
 
     for event, result in zip(events, results):
         if result is None:
             # Exception was logged by process_batch
             continue
 
+        decision = result.policy_decision
+        if decision is not None and not decision.automatic_recovery_allowed:
+            # Naive would have retried this anyway.
+            naive["extra_attempts"] += 1
+            reason = getattr(decision.escalation_reason, "value", None)
+            amount_here = event.amount or 0
+            if reason == "amount_exceeds_limit":
+                naive["amount_chased_past_cap"] += amount_here
+            elif reason in ("retry_limit_exhausted", "global_attempt_cap"):
+                naive["attempts_past_retry_cap"] += 1
+            elif reason == "unknown_failure":
+                naive["blind_retries_on_unknown_cause"] += 1
+            elif reason == "non_retryable_failure":
+                naive["non_retryable_retried"] += 1
+
+        if result.outreach is not None and result.outreach.attempted:
+            outreach_attempted += 1
+            if result.outreach.delivered:
+                outreach_delivered += 1
+
+        if getattr(result, "action_source", "policy") == "model":
+            model_chose_action += 1
+
         attempted_amount += event.amount or 0
+        # What policy actually authorised chasing. Recovered/recoverable
+        # measures the agent; recovered/attempted is dominated by the cases
+        # it correctly refused to touch.
+        if (
+            result.policy_decision is not None
+            and result.policy_decision.automatic_recovery_allowed
+        ):
+            recoverable_amount += event.amount or 0
         outcome = result.final_outcome.value
         outcomes[outcome] = outcomes.get(outcome, 0) + 1
         if result.audit_write is not None and result.audit_write.record is not None:
@@ -684,6 +927,10 @@ def run_batch(
             else 0
         )
         recovered_amount += got
+        if got > 0 and execution is not None:
+            recovery_delays.append(
+                int(getattr(execution, "recovery_delay_seconds", 0) or 0)
+            )
 
         # Recovery actions counters — derived from outcome + execution.
         if execution is not None and execution.executed:
@@ -733,6 +980,7 @@ def run_batch(
         report = run_due_jobs(_state_store, _worker_pipeline, now=horizon)
         scheduler_summary = report.as_dict()
         recovered_amount += report.amount_recovered
+        recovery_delays.extend(report.delays_seconds)
         funnel["contacted"] += report.recovered + report.failed
         funnel["confirmed_recovered"] += report.recovered
         # Attribute deferred recoveries to the scenario they came from, or
@@ -767,9 +1015,13 @@ def run_batch(
     return {
         "transactions_processed": processed,
         "total_attempted_amount": attempted_amount,
+        "total_recoverable_amount": recoverable_amount,
         "total_recovered_amount": recovered_amount,
         "recovery_rate_by_amount": (
             recovered_amount / attempted_amount if attempted_amount else 0.0
+        ),
+        "recovery_rate_of_recoverable": (
+            recovered_amount / recoverable_amount if recoverable_amount else 0.0
         ),
         "recovery_rate_by_count": (
             funnel["confirmed_recovered"] / processed if processed else 0.0
@@ -779,6 +1031,20 @@ def run_batch(
         "by_scenario": [
             {"scenario": name, **values} for name, values in sorted(by_category.items())
         ],
+        "timing": _timing_summary(recovery_delays),
+        "restraint": {
+            **naive,
+            "note": (
+                "What a retry-everything agent would have done with the cases "
+                "this one refused. Each extra attempt is a real issuer hit and "
+                "a chance to charge a customer twice."
+            ),
+        },
+        "outreach": {
+            "attempted": outreach_attempted,
+            "delivered": outreach_delivered,
+            "simulated": True,
+        },
         "audit_ids": audit_ids,
         "reasoning": {
             "mode": "model" if explain else "skipped",
@@ -788,6 +1054,7 @@ def run_batch(
             "from_cache": reasoning_from_cache,
             "customer_messages": reasoning_customer_messages,
             "overrode_policy": reasoning_overrode_policy,
+            "chose_action": model_chose_action,
             "model": settings.nim_model,
             "prompt_version": reasoning_prompt_version,
             "schema_version": reasoning_schema_version,
@@ -823,6 +1090,82 @@ def run_batch(
         "duration_seconds": (
             datetime.now(timezone.utc) - started
         ).total_seconds(),
+    }
+
+
+@router.post("/webhook/razorpay")
+async def razorpay_webhook(request: Request) -> dict[str, Any]:
+    """Ingest a live ``payment.failed`` notification.
+
+    The signature covers the raw bytes, so the body is verified before it is
+    parsed. A payload this system should not act on — a different event, or a
+    payment that has already settled — is acknowledged rather than rejected,
+    because Razorpay retries anything that is not a 2xx and there is nothing
+    to retry here.
+    """
+    raw = await request.body()
+    try:
+        verify_signature(raw, request.headers.get("X-Razorpay-Signature"))
+        event = parse_failed_payment(raw)
+    except WebhookRejected as exc:
+        # 400, never 500: the payload is the problem, and a 5xx would make
+        # Razorpay redeliver a request that can never succeed.
+        logger.warning("Webhook rejected: %s", exc)
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if event is None:
+        return {"accepted": True, "processed": False, "reason": "no action warranted"}
+
+    try:
+        result = _pipeline.process(event)
+    except Exception as exc:
+        logger.error("Webhook pipeline processing failed: %s", exc)
+        raise HTTPException(status_code=500, detail=f"Pipeline error: {exc}") from exc
+
+    return {
+        "accepted": True,
+        "processed": True,
+        "payment_id": event.razorpay_payment_id,
+        "action": getattr(
+            getattr(result.policy_decision, "action", None), "value", None
+        ),
+        "automatic_recovery_allowed": bool(
+            result.policy_decision is not None
+            and result.policy_decision.automatic_recovery_allowed
+        ),
+        "audit_id": getattr(result.audit_write, "audit_id", None),
+    }
+
+
+@router.get("/learned")
+def learned_outcomes(
+    min_observations: int = Query(
+        3,
+        ge=1,
+        description=(
+            "Withhold a rate until it rests on at least this many attempts. "
+            "One observation is noise, not a lesson."
+        ),
+    ),
+) -> dict[str, Any]:
+    """What the agent has measured about its own recovery actions.
+
+    Aggregated from the append-only audit log, so these are outcomes the
+    system actually produced — not a hardcoded table. The same figures are
+    fed to the advisor, which is what lets it choose an action on evidence.
+
+    Empty on a fresh database: the agent has not done anything to learn from
+    yet, and saying so is more honest than showing a made-up prior.
+    """
+    rows = _audit_logger.outcome_stats(min_observations=min_observations)
+    return {
+        "min_observations": min_observations,
+        "rows": rows,
+        "learned": bool(rows),
+        "note": (
+            "Measured from this system's own audit log, not configured. "
+            "Run more batches to sharpen it."
+        ),
     }
 
 
@@ -918,6 +1261,66 @@ def revenue_at_risk(
         "by_merchant": merchants,
         "repeat_customers": repeats,
         "subscription_failures": subscription,
+    }
+
+
+@router.post("/run-ab")
+def run_ab(
+    count: int = Query(default=25, ge=1, le=200, description="Events per arm"),
+    seed: int = Query(default=42, description="Same seed for both arms"),
+) -> dict[str, Any]:
+    """Measure what the advisor's action choice is actually worth.
+
+    Runs the same seeded batch twice — once with the advisor allowed to pick
+    among the policy's permitted actions, once forced to the policy default.
+    Both arms use live reasoning; the only difference between them is who
+    chose the action.
+    """
+    control = _execute_batch(count, seed, True, True, _control_pipeline)
+    treatment = _execute_batch(count, seed, True, True, _pipeline)
+
+    def _median(arm: dict[str, Any]) -> int | None:
+        return arm["timing"]["median_seconds"]
+
+    choices = treatment["reasoning"].get("chose_action", 0)
+    return {
+        "count_per_arm": count,
+        "seed": seed,
+        "control": {
+            "label": "policy default action",
+            "recovered_amount": control["total_recovered_amount"],
+            "recovery_rate_of_recoverable": control["recovery_rate_of_recoverable"],
+            "median_seconds_to_recovery": _median(control),
+        },
+        "treatment": {
+            "label": "advisor chose among permitted actions",
+            "recovered_amount": treatment["total_recovered_amount"],
+            "recovery_rate_of_recoverable": treatment["recovery_rate_of_recoverable"],
+            "median_seconds_to_recovery": _median(treatment),
+            "actions_chosen_by_model": choices,
+        },
+        "delta": {
+            "recovered_amount": treatment["total_recovered_amount"]
+            - control["total_recovered_amount"],
+            "recovery_rate_of_recoverable": treatment["recovery_rate_of_recoverable"]
+            - control["recovery_rate_of_recoverable"],
+            "median_seconds_to_recovery": (
+                None
+                if _median(control) is None or _median(treatment) is None
+                else _median(treatment) - _median(control)
+            ),
+        },
+        # Without a live model the advisor has nothing to suggest, so both
+        # arms are identical by construction. Say so rather than presenting
+        # a null result as evidence.
+        "conclusive": bool(choices),
+        "note": (
+            "The advisor changed the action on "
+            f"{choices} of {count} events."
+            if choices
+            else "The advisor made no action choices in this run, so the arms "
+            "are identical. Configure NIM_API_KEY for a live comparison."
+        ),
     }
 
 

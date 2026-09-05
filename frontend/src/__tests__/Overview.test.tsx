@@ -16,6 +16,8 @@ const SUMMARY: BatchSummary = {
   total_attempted_amount: 43_426_500,
   total_recovered_amount: 1_204_200,
   recovery_rate_by_amount: 0.0277,
+  total_recoverable_amount: 1_204_200,
+  recovery_rate_of_recoverable: 1.0,
   recovery_rate_by_count: 0.125,
   outcomes: { escalated: 35, recovered: 5 },
   funnel: { raw: 40, needed_signal: 40, contacted: 5, confirmed_recovered: 5 },
@@ -58,10 +60,13 @@ describe("Overview", () => {
     expect(tile("Confirmed recovered").getByText("₹12.0K")).toBeInTheDocument();
   });
 
-  it("shows the rate by amount, not by count", () => {
+  it("leads with the rate of what policy authorised chasing", () => {
     render(<Overview summary={SUMMARY} risk={null} error={null} running={false} />);
-    // 2.8% by amount; the by-count rate (12.5%) must not be the headline.
-    expect(tile("Recovery rate").getByText("2.8%")).toBeInTheDocument();
+    // Recovered/recoverable measures the agent. Recovered/attempted (2.8%)
+    // is dominated by cases policy correctly refused, so it is context, not
+    // the headline.
+    expect(tile("Recovery rate").getByText("100.0%")).toBeInTheDocument();
+    expect(tile("Recovery rate").getByText(/2\.8% of everything that failed/)).toBeInTheDocument();
   });
 
   it("labels simulated results honestly", () => {
@@ -136,6 +141,31 @@ describe("Overview", () => {
     render(<Overview summary={SUMMARY} risk={null} error={null} running={false} />);
     const scenarios = within(screen.getByTestId("recovery-by-scenario"));
     expect(scenarios.getByText("Insufficient Funds")).toBeInTheDocument();
+  });
+});
+
+describe("Honest contact reporting", () => {
+  it("says how many interventions actually reached a customer", () => {
+    const withOutreach = {
+      ...SUMMARY,
+      outreach: { attempted: 4, delivered: 3, simulated: true },
+    };
+    render(<Overview summary={withOutreach} risk={null} error={null} running={false} />);
+    const line = screen.getByTestId("funnel-outreach");
+    expect(line).toHaveTextContent("3");
+    expect(line).toHaveTextContent(/withheld/);
+    expect(line).toHaveTextContent(/silent retries against the payment rail/);
+  });
+
+  it("labels the stage Intervened rather than implying contact", () => {
+    render(<Overview summary={SUMMARY} risk={null} error={null} running={false} />);
+    const funnel = within(screen.getByTestId("recovery-funnel"));
+    expect(funnel.getAllByText("Intervened").length).toBeGreaterThan(0);
+  });
+
+  it("omits the contact line when the batch reported no outreach", () => {
+    render(<Overview summary={SUMMARY} risk={null} error={null} running={false} />);
+    expect(screen.queryByTestId("funnel-outreach")).not.toBeInTheDocument();
   });
 });
 

@@ -44,6 +44,17 @@ export default function AiContribution({ summary }: AiContributionProps) {
           </div>
 
           <div className="ai-metric">
+            <span className="ai-metric__label">Chose the action</span>
+            <span className="ai-metric__value data-mono">
+              {r.chose_action ?? 0}
+            </span>
+            <span className="ai-metric__note">
+              picked a different, equally authorised action from the policy's
+              permitted set
+            </span>
+          </div>
+
+          <div className="ai-metric">
             <span className="ai-metric__label">Policy overrides — must be 0</span>
             <span className="ai-metric__value data-mono">
               {r.overrode_policy}

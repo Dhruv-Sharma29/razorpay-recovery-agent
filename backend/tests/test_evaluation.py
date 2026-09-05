@@ -66,7 +66,7 @@ class TestEvaluationHarness:
         )
 
         class FixtureRecommender:
-            def recommend(self, event, classification, approved_history=None):
+            def recommend(self, event, classification, approved_history=None, **_):
                 known = classification.category != FailureCategory.UNKNOWN
                 return RecoveryRecommendation(
                     success=True,

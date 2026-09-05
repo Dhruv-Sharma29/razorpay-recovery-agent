@@ -42,7 +42,12 @@ def print_report(report: EvaluationReport) -> None:
     print(f"Amount Recovered:          {_rupees(report.total_recovered_amount)}")
     print(f"Amount Escalated:          {_rupees(report.amount_escalated)}")
     print(f"Amount Not Recovered:      {_rupees(report.amount_failed)}")
-    print(f"Recovery Rate (by amount): {report.recovery_rate_by_amount:.2%}")
+    print(f"Amount Recoverable:        {_rupees(report.total_recoverable_amount)}"
+          "   (what policy authorised chasing)")
+    print(f"Recovery Rate (of recoverable): {report.recovery_rate_of_recoverable:.2%}"
+          "   <- how well the agent does its job")
+    print(f"Recovery Rate (by amount): {report.recovery_rate_by_amount:.2%}"
+          "   (includes what policy correctly refused)")
     print(f"Recovery Rate (by count):  {report.recovery_rate_by_count:.2%}")
 
     if report.by_category:

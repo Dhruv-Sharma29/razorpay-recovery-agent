@@ -323,6 +323,48 @@ npm run build
     └── src/                # React dashboard and API client
 ```
 
+## Deployment
+
+The frontend and the API deploy separately, and that split is deliberate.
+
+**Frontend → Vercel.** It is a static Vite build, which is exactly what
+Vercel is for.
+
+1. New Project → import the repo → set **Root Directory** to `frontend`.
+   `frontend/vercel.json` supplies the rest.
+2. Add `VITE_API_BASE` pointing at the deployed API (no trailing slash). It
+   is baked in at build time, so redeploy after changing it.
+
+**API → a host with a persistent disk**, *not* Vercel serverless. The audit
+log and the idempotency ledger are SQLite files. Serverless filesystems are
+ephemeral and are not shared between concurrent invocations, so on Vercel
+the append-only audit trail would be lost on every cold start and the same
+payment could be retried twice — the two guarantees this system is built
+on. `backend/Dockerfile` and `backend/render.yaml` deploy it to Render's
+free tier with a 1 GB disk mounted at `/data`:
+
+1. New → Blueprint → point at `backend/render.yaml`.
+2. Set `NIM_API_KEY` (leave unset to run on the deterministic fallback).
+3. Set `CORS_ALLOW_ORIGINS` to your Vercel URL, comma-separated for more
+   than one.
+
+Then set `VITE_API_BASE` on Vercel to the Render URL and redeploy.
+
+Any host that runs a container with a mounted volume works the same way —
+Railway, Fly.io, or a plain VM. If you later want true serverless, the
+storage layer (`app/audit/store.py`, `app/persistence/store.py`) is raw
+`sqlite3` and would need porting to Postgres first.
+
+### Deployment environment variables
+
+| Where | Variable | Purpose |
+| --- | --- | --- |
+| Vercel | `VITE_API_BASE` | Deployed API origin, no trailing slash |
+| API | `DATABASE_URL` | `sqlite:////data/recovery.db` on the mounted disk |
+| API | `CORS_ALLOW_ORIGINS` | Comma-separated allowlist; never a wildcard |
+| API | `NIM_API_KEY` | Optional; without it reasoning uses the fallback |
+| API | `NIM_MODEL` | Defaults to the Nemotron model |
+
 ## Configuration
 
 Copy `backend/.env.example` to `backend/.env` and adjust as needed:

@@ -45,6 +45,9 @@ class ExecOutcome:
     error: str | None = None
     payment_status: str | None = None
     amount_recovered: int | None = None
+    # False only when a real gateway was actually contacted. Defaults to True
+    # so an executor has to claim otherwise deliberately.
+    simulated: bool = True
 
     @classmethod
     def coerce(cls, raw: "ExecOutcome | tuple[bool, str | None]") -> "ExecOutcome":
@@ -70,6 +73,7 @@ _EXECUTABLE_ACTIONS: frozenset[PolicyAction] = frozenset(
         PolicyAction.TRIGGER_REAUTHORIZATION,
         PolicyAction.SWITCH_PAYMENT_METHOD,
         PolicyAction.RESEND_AUTH_PROMPT,
+        PolicyAction.SEND_PAYMENT_REMINDER,
     }
 )
 
@@ -313,6 +317,7 @@ class RecoveryExecutor(abc.ABC):
                 reason=f"Successfully executed {action_str} for {payment_id}",
                 payment_status=outcome.payment_status,
                 amount_recovered=outcome.amount_recovered,
+                simulated=outcome.simulated,
                 timestamp=now,
             )
         else:
@@ -328,6 +333,7 @@ class RecoveryExecutor(abc.ABC):
                 reason=f"Execution of {action_str} failed for {payment_id}",
                 payment_status=outcome.payment_status or "failed",
                 amount_recovered=outcome.amount_recovered or 0,
+                simulated=outcome.simulated,
                 timestamp=now,
             )
 

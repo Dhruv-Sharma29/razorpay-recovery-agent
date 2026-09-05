@@ -26,8 +26,17 @@ interface Stage {
   /** Secondary line, kept as its own node so each backend field stays
       independently addressable rather than concatenated into prose. */
   meta?: string;
-  /** Marks model stages as advisory-only, never decision-makers. */
-  advisory?: boolean;
+  /**
+   * How far the model's authority extends at this stage.
+   *
+   * "bounded" — it may pick among the actions policy already authorised,
+   * and can neither add one nor authorise recovery itself.
+   * "advisory" — it cannot affect the outcome at all; the stage runs after
+   * the decision is made and only produces text.
+   *
+   * Absent means the stage is deterministic and decides for itself.
+   */
+  authority?: "bounded" | "advisory";
   /** Render value/detail in monospace (IDs, amounts, timestamps). */
   mono?: boolean;
   reached: boolean;
@@ -55,7 +64,7 @@ function buildStages(result: DashboardResult): Stage[] {
           : result.risk_score !== null && result.risk_score !== undefined
             ? `Risk score: ${Math.round(result.risk_score * 100)}%`
             : undefined,
-      advisory: true,
+      authority: "bounded",
       reached:
         result.recommendation_success !== null &&
         result.recommendation_success !== undefined,
@@ -87,7 +96,7 @@ function buildStages(result: DashboardResult): Stage[] {
         result.reasoning_success !== null
           ? `Reasoning succeeded: ${result.reasoning_success ? "Yes" : "No"}`
           : undefined,
-      advisory: true,
+      authority: "advisory",
       reached: result.reasoning_recommendation !== null,
     },
     {
@@ -140,8 +149,18 @@ export default function PipelineStages({ result }: PipelineStagesProps) {
           <div className="rail-node__marker">{i + 1}</div>
           <div className="rail-node__label">
             {stage.label}
-            {stage.advisory && (
-              <span className="rail-node__advisory">Advisory only</span>
+            {stage.authority && (
+              <span
+                className="rail-node__advisory"
+                data-authority={stage.authority}
+                title={
+                  stage.authority === "bounded"
+                    ? "May choose among the actions policy permits. Cannot add an action, raise a limit, or authorise recovery."
+                    : "Produces explanation text only. Runs after the decision and cannot change it."
+                }
+              >
+                {stage.authority === "bounded" ? "Bounded" : "Advisory only"}
+              </span>
             )}
           </div>
           {stage.reached && (

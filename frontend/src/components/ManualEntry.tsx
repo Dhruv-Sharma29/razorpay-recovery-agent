@@ -26,6 +26,7 @@ const ERROR_CODES = [
   "GATEWAY_ERROR",
   "BANK_DECLINED",
   "AUTHENTICATION_ERROR",
+  "INVOICE_OVERDUE",
   "SOMETHING_UNKNOWN",
 ];
 
@@ -35,6 +36,7 @@ const DESCRIPTIONS: Record<string, string> = {
   GATEWAY_ERROR: "Gateway timed out before capture",
   BANK_DECLINED: "Card declined by the issuing bank",
   AUTHENTICATION_ERROR: "Customer did not complete authentication",
+  INVOICE_OVERDUE: "Invoice is past its due date",
   SOMETHING_UNKNOWN: "Something went wrong that matches no known category",
 };
 
@@ -67,6 +69,13 @@ export default function ManualEntry({ disabled, onSubmit }: ManualEntryProps) {
   const [method, setMethod] = useState<"upi" | "card" | "netbanking">("upi");
   const [txnType, setTxnType] = useState<"one_time" | "subscription">("one_time");
   const [mandate, setMandate] = useState<string>("none");
+  // Live-gateway identifiers. Empty by default: a synthetic event has no real
+  // mandate, and the live executor refuses rather than inventing one.
+  const [rzpCustomer, setRzpCustomer] = useState("");
+  const [rzpToken, setRzpToken] = useState("");
+  const [rzpEmail, setRzpEmail] = useState("");
+  const [rzpContact, setRzpContact] = useState("");
+  const [showRzp, setShowRzp] = useState(false);
 
   // Not clamped while typing: an out-of-range value is flagged rather than
   // silently corrected, so the operator sees what they actually entered.
@@ -90,6 +99,17 @@ export default function ManualEntry({ disabled, onSubmit }: ManualEntryProps) {
       failure_category: "unknown",
       attempt_number: clamp(attempt, MIN_ATTEMPT, MAX_ATTEMPT),
       mandate_status: mandate === "none" ? null : mandate,
+      // Omitted entirely when blank, so an empty form stays indistinguishable
+      // from an event that genuinely has no gateway context.
+      razorpay:
+        rzpCustomer || rzpToken || rzpEmail || rzpContact
+          ? {
+              customer_id: rzpCustomer || null,
+              token_id: rzpToken || null,
+              email: rzpEmail || null,
+              contact: rzpContact || null,
+            }
+          : undefined,
       timestamp: new Date().toISOString(),
     });
   }
@@ -114,7 +134,11 @@ export default function ManualEntry({ disabled, onSubmit }: ManualEntryProps) {
           >
             {ERROR_CODES.map((code) => (
               <option key={code} value={code}>
-                {code === "SOMETHING_UNKNOWN" ? "Unknown / ambiguous" : code}
+                {code === "SOMETHING_UNKNOWN"
+                  ? "Unknown / ambiguous"
+                  : code === "INVOICE_OVERDUE"
+                    ? "INVOICE_OVERDUE (B2B receivable)"
+                    : code}
               </option>
             ))}
           </select>
@@ -219,6 +243,75 @@ export default function ManualEntry({ disabled, onSubmit }: ManualEntryProps) {
               : "Expired or paused needs re-authorization"}
           </span>
         </div>
+      </div>
+
+      <div className="manual-entry__rzp">
+        <button
+          type="button"
+          className="btn btn--ghost"
+          aria-expanded={showRzp}
+          onClick={() => setShowRzp((open) => !open)}
+          data-testid="manual-rzp-toggle"
+        >
+          Razorpay identifiers (optional)
+        </button>
+        {showRzp && (
+          <>
+            <p className="form-hint">
+              Only used when EXECUTOR_MODE=razorpay_test. A retry needs a saved
+              mandate; a payment link needs somewhere to send it. Leave blank
+              and the executor reports that it could not attempt, rather than
+              reporting a declined payment.
+            </p>
+            <div className="form-grid">
+              <div className="form-field">
+                <label htmlFor="me-rzp-customer">Customer id</label>
+                <input
+                  id="me-rzp-customer"
+                  value={rzpCustomer}
+                  disabled={disabled}
+                  placeholder="cust_..."
+                  onChange={(e) => setRzpCustomer(e.target.value)}
+                  data-testid="manual-rzp-customer"
+                />
+              </div>
+              <div className="form-field">
+                <label htmlFor="me-rzp-token">Token id</label>
+                <input
+                  id="me-rzp-token"
+                  value={rzpToken}
+                  disabled={disabled}
+                  placeholder="token_..."
+                  onChange={(e) => setRzpToken(e.target.value)}
+                  data-testid="manual-rzp-token"
+                />
+              </div>
+              <div className="form-field">
+                <label htmlFor="me-rzp-email">Email</label>
+                <input
+                  id="me-rzp-email"
+                  type="email"
+                  value={rzpEmail}
+                  disabled={disabled}
+                  placeholder="customer@example.com"
+                  onChange={(e) => setRzpEmail(e.target.value)}
+                  data-testid="manual-rzp-email"
+                />
+              </div>
+              <div className="form-field">
+                <label htmlFor="me-rzp-contact">Contact</label>
+                <input
+                  id="me-rzp-contact"
+                  value={rzpContact}
+                  disabled={disabled}
+                  placeholder="+919999999999"
+                  onChange={(e) => setRzpContact(e.target.value)}
+                  data-testid="manual-rzp-contact"
+                />
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       <button

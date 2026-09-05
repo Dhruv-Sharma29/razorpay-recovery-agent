@@ -115,6 +115,15 @@ class ExecutionResult(BaseModel):
         ),
     )
 
+    recovery_delay_seconds: int = Field(
+        default=0,
+        description=(
+            "Seconds from the failure to the money landing. 0 for an action "
+            "that runs inline; the cooldown for a deferred retry. This is "
+            "what separates 'recovered' from 'recovered quickly'."
+        ),
+    )
+
     simulated: bool = Field(
         default=True,
         description=(

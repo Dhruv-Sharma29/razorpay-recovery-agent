@@ -46,6 +46,15 @@ function card() {
 }
 
 describe("AiContribution", () => {
+  it("reports how often the model chose the action", () => {
+    render(<AiContribution summary={summary({ chose_action: 6 })} />);
+    const tile = card().getByText("Chose the action").closest(".ai-metric");
+    expect(within(tile as HTMLElement).getByText("6")).toBeInTheDocument();
+    expect(
+      within(tile as HTMLElement).getByText(/equally authorised action/i),
+    ).toBeInTheDocument();
+  });
+
   it("renders nothing before a batch has run", () => {
     const { container } = render(<AiContribution summary={null} />);
     expect(container).toBeEmptyDOMElement();

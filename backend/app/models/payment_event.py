@@ -20,6 +20,7 @@ class FailureCategory(str, Enum):
     NETWORK_ERROR = "network_error"
     BANK_DECLINE = "bank_decline"
     AUTHENTICATION_FAILURE = "authentication_failure"
+    OVERDUE_RECEIVABLE = "overdue_receivable"
     UNKNOWN = "unknown"
 
 
@@ -44,6 +45,34 @@ class MandateStatus(str, Enum):
     ACTIVE = "active"
     EXPIRED = "expired"
     PAUSED = "paused"
+
+
+class RazorpayContext(BaseModel):
+    """Identifiers a real Razorpay recovery call needs, when they exist.
+
+    Entirely optional. Synthetic batches carry none of this, and the
+    simulated executor never looks at it — it exists so the live executor
+    can tell "this customer has a mandate we may charge" apart from "this
+    customer must be asked to pay again", rather than guessing.
+    """
+
+    customer_id: Optional[str] = Field(
+        default=None,
+        description="Razorpay customer handle (cust_...), not the merchant's own id.",
+    )
+    token_id: Optional[str] = Field(
+        default=None,
+        description=(
+            "Saved card/mandate token from a prior authorised payment. Without "
+            "one there is no lawful way to charge the customer unattended."
+        ),
+    )
+    email: Optional[str] = Field(
+        default=None, description="Where a payment link may be sent."
+    )
+    contact: Optional[str] = Field(
+        default=None, description="Phone number a payment link may be sent to."
+    )
 
 
 class FailedTransactionEvent(BaseModel):
@@ -85,6 +114,14 @@ class FailedTransactionEvent(BaseModel):
         default=None,
         description="Mandate status for subscription payments, null for one_time",
     )
+    razorpay: Optional[RazorpayContext] = Field(
+        default=None,
+        description=(
+            "Live-gateway identifiers. Absent for synthetic events, which is "
+            "why the live executor must refuse rather than improvise."
+        ),
+    )
+
     timestamp: datetime = Field(
         ..., description="ISO 8601 timestamp of the event"
     )

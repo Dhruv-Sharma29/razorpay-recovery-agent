@@ -30,6 +30,10 @@ class SchedulerRunReport:
     job_ids: list[str] = field(default_factory=list)
     # Recovered amount and count per failure category, so a caller can
     # attribute deferred recoveries back to the scenario they came from.
+    # Seconds each recovered job waited between being scheduled and running.
+    # A deferred retry recovers real money, just later — that lag is the
+    # cost of the cooldown and is worth reporting.
+    delays_seconds: list[int] = field(default_factory=list)
     amount_by_category: dict[str, int] = field(default_factory=dict)
     count_by_category: dict[str, int] = field(default_factory=dict)
 
@@ -40,6 +44,7 @@ class SchedulerRunReport:
             "failed": self.failed,
             "amount_recovered": self.amount_recovered,
             "job_ids": list(self.job_ids),
+            "delays_seconds": list(self.delays_seconds),
             "amount_by_category": dict(self.amount_by_category),
             "count_by_category": dict(self.count_by_category),
         }
@@ -100,6 +105,17 @@ def run_due_jobs(store, pipeline, now: datetime | None = None) -> SchedulerRunRe
         if recovered > 0:
             report.recovered += 1
             report.amount_recovered += recovered
+            try:
+                waited = int(
+                    (
+                        datetime.fromisoformat(job["next_eligible_at"])
+                        - datetime.fromisoformat(job["created_at"])
+                    ).total_seconds()
+                )
+                report.delays_seconds.append(max(0, waited))
+            except Exception:  # noqa: BLE001
+                # A malformed timestamp must not lose the recovery itself.
+                report.delays_seconds.append(0)
             report.amount_by_category[category] = (
                 report.amount_by_category.get(category, 0) + recovered
             )

@@ -55,7 +55,7 @@ describe("PipelineStages", () => {
   it("renders all seven stages in pipeline order", () => {
     const { container } = render(<PipelineStages result={result()} />);
     const labels = [...container.querySelectorAll(".rail-node__label")].map((n) =>
-      n.textContent?.replace("Advisory only", "").trim(),
+      n.textContent?.replace(/Bounded|Advisory only/, "").trim(),
     );
     expect(labels).toEqual([
       "AI Recommendation",
@@ -68,12 +68,16 @@ describe("PipelineStages", () => {
     ]);
   });
 
-  it("marks model stages as advisory only", () => {
+  it("distinguishes what the model may choose from what it may only say", () => {
     render(<PipelineStages result={result()} />);
-    expect(node("AI Recommendation")).toHaveTextContent("Advisory only");
+    // The recommendation can become the action, but only from the set policy
+    // already authorised — so it is bounded, not merely advisory.
+    expect(node("AI Recommendation")).toHaveTextContent("Bounded");
+    // Reasoning runs after the decision and only produces text.
     expect(node("Reasoning")).toHaveTextContent("Advisory only");
-    // The deciding stage must never be labelled advisory.
+    // The deciding stage carries no model-authority badge at all.
     expect(node("Policy Decision")).not.toHaveTextContent("Advisory only");
+    expect(node("Policy Decision")).not.toHaveTextContent("Bounded");
   });
 
   it("shows the AI suggestion separately from policy treatment", () => {

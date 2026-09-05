@@ -5,10 +5,17 @@
  * here keeps model output separate from the deterministic policy decision.
  */
 
+import AbPanel from "../components/AbPanel";
+import AgentLearning from "../components/AgentLearning";
 import ManualEntry from "../components/ManualEntry";
 import PipelineStages from "../components/PipelineStages";
 import StatusBadge from "../components/StatusBadge";
-import type { DashboardResult, PaymentEventPayload } from "../types/dashboard";
+import type {
+  AbResult,
+  DashboardResult,
+  LearnedOutcomes,
+  PaymentEventPayload,
+} from "../types/dashboard";
 import { formatRupees } from "../utils/format";
 
 interface SampleCase {
@@ -26,6 +33,13 @@ interface AgentProps {
   cases: SampleCase[];
   onRunSample: (payload: PaymentEventPayload) => void;
   onRunGoldenPath: () => void;
+  /** Supplementary evidence about the model. Omitted, the panels stay out
+      of the way rather than rendering a dead control. */
+  learned?: LearnedOutcomes | null;
+  ab?: AbResult | null;
+  abRunning?: boolean;
+  abError?: string | null;
+  onRunAb?: () => void;
 }
 
 export default function Agent({
@@ -35,6 +49,11 @@ export default function Agent({
   cases,
   onRunSample,
   onRunGoldenPath,
+  learned = null,
+  ab = null,
+  abRunning = false,
+  abError = null,
+  onRunAb,
 }: AgentProps) {
   const isFallback = result?.reasoning_is_fallback ?? null;
 
@@ -49,6 +68,20 @@ export default function Agent({
           suppress an escalation.
         </p>
       </header>
+
+      {/* Evidence about the model itself, above the single-case walkthrough:
+          what it has measured, and whether its choices are worth anything. */}
+      {onRunAb && (
+        <div className="agent__evidence">
+          <AgentLearning learned={learned} />
+          <AbPanel
+            result={ab}
+            running={abRunning}
+            error={abError}
+            onRun={onRunAb}
+          />
+        </div>
+      )}
 
       <div className="agent__actions">
         {cases.map((c) => (

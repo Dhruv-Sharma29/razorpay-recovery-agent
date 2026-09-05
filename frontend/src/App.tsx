@@ -14,13 +14,19 @@ import {
   getRisk,
   processPayment,
   resetState,
+  fetchLearned,
+  runAb,
   runBatch,
+  streamBatch,
   runGoldenPath,
 } from "./api/client";
 import Sidebar, { type ViewKey } from "./layout/Sidebar";
 import TopBar from "./layout/TopBar";
 import type {
   AuditRecord,
+  AbResult,
+  BatchCaseFrame,
+  LearnedOutcomes,
   BatchSummary,
   DashboardResult,
   PaymentEventPayload,
@@ -115,6 +121,15 @@ export default function App() {
   const [view, setView] = useState<ViewKey>("overview");
 
   const [summary, setSummary] = useState<BatchSummary | null>(null);
+  // Cases as they land, so a run reads as work in progress rather than a
+  // spinner followed by a finished report.
+  const [feed, setFeed] = useState<BatchCaseFrame[]>([]);
+  // Measured recovery rates the advisor is fed. Refreshed after every batch,
+  // so a second run visibly knows more than the first.
+  const [learned, setLearned] = useState<LearnedOutcomes | null>(null);
+  const [ab, setAb] = useState<AbResult | null>(null);
+  const [abRunning, setAbRunning] = useState(false);
+  const [abError, setAbError] = useState<string | null>(null);
   const [batchError, setBatchError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [lastRun, setLastRun] = useState<{ count: number; seconds: number } | null>(
@@ -143,6 +158,15 @@ export default function App() {
     }
   }, []);
 
+  const refreshLearned = useCallback(async () => {
+    try {
+      setLearned(await fetchLearned());
+    } catch {
+      // Supplementary, like the risk card: an empty panel beats a broken view.
+      setLearned(null);
+    }
+  }, []);
+
   const refreshAudit = useCallback(async () => {
     setAuditLoading(true);
     setAuditError(null);
@@ -161,12 +185,13 @@ export default function App() {
   useEffect(() => {
     refreshAudit();
     refreshRisk();
+    refreshLearned();
     // Ask the backend which provider is configured, so the status pill is
     // truthful before anything has been processed.
     getProvider()
       .then(setProvider)
       .catch(() => setProvider(null));
-  }, [refreshAudit, refreshRisk]);
+  }, [refreshAudit, refreshRisk, refreshLearned]);
 
   async function handleRun(
     count: number,
@@ -176,8 +201,23 @@ export default function App() {
     if (running) return;
     setRunning(true);
     setBatchError(null);
+    setFeed([]);
     try {
-      const data = await runBatch(count, { runScheduler, explain });
+      // Stream so each case appears as the pipeline finishes with it. If the
+      // browser or a proxy cannot stream, fall back to the plain endpoint —
+      // the summary is identical either way.
+      let data: BatchSummary;
+      try {
+        data = await streamBatch(
+          count,
+          { runScheduler, explain },
+          { onCase: (frame) => setFeed((prev) => [...prev, frame]) },
+        );
+      } catch (streamErr) {
+        console.warn("Falling back to the non-streaming batch", streamErr);
+        setFeed([]);
+        data = await runBatch(count, { runScheduler, explain });
+      }
       setSummary(data);
       if (data.reasoning) {
         setLastWasFallback(
@@ -191,12 +231,29 @@ export default function App() {
       });
       refreshAudit();
       refreshRisk();
+      refreshLearned();
     } catch (err) {
       setBatchError(
         err instanceof Error ? err.message : "Failed to run the batch",
       );
     } finally {
       setRunning(false);
+    }
+  }
+
+  async function handleRunAb() {
+    if (abRunning) return;
+    setAbRunning(true);
+    setAbError(null);
+    try {
+      // Two full batches server-side; the client timeout already allows for it.
+      setAb(await runAb(30, 11));
+    } catch (err) {
+      setAbError(
+        err instanceof Error ? err.message : "Failed to run the comparison",
+      );
+    } finally {
+      setAbRunning(false);
     }
   }
 
@@ -284,6 +341,7 @@ export default function App() {
               risk={risk}
               error={batchError}
               running={running}
+              feed={feed}
             />
           )}
           {view === "cases" && (
@@ -302,6 +360,11 @@ export default function App() {
               cases={SAMPLE_CASES}
               onRunSample={handleSample}
               onRunGoldenPath={handleGoldenPath}
+              learned={learned}
+              ab={ab}
+              abRunning={abRunning}
+              abError={abError}
+              onRunAb={handleRunAb}
             />
           )}
         </main>

@@ -8,8 +8,10 @@ Every component boundary fails safely.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 
+from app.config import settings
 from app.audit.result import AuditOutcome
 from app.audit.store import AuditLogger
 from app.classifier.engine import FailureClassifier
@@ -17,6 +19,7 @@ from app.escalation.handler import EscalationHandler
 from app.executor.base import RecoveryExecutor
 from app.executor.result import ExecutionResult, ExecutionStatus
 from app.models.payment_event import FailedTransactionEvent
+from app.outreach.dispatcher import OutreachResult, SimulatedOutreachDispatcher
 from app.persistence.store import RecoveryStateStore
 from app.pipeline.result import PipelineResult
 from app.policy.engine import RecoveryPolicyEngine
@@ -51,6 +54,9 @@ class RecoveryPipeline:
         audit_logger: AuditLogger,
         state_store: RecoveryStateStore | None = None,
         recommender: RecoveryRecommender | None = None,
+        outreach: SimulatedOutreachDispatcher | None = None,
+        allow_model_action_choice: bool = True,
+        model_action_choice_min_confidence: float | None = None,
     ) -> None:
         self.classifier = classifier
         self.policy_engine = policy_engine
@@ -59,6 +65,21 @@ class RecoveryPipeline:
         self.escalation_handler = escalation_handler
         self.audit_logger = audit_logger
         self.recommender = recommender
+        # Delivers the drafted message for actions that need the customer to
+        # act. None disables outreach entirely.
+        self.outreach = outreach
+        # Control arm for A/B: when False the policy's prescribed action is
+        # always used, so the two arms differ only by the advisor's choice.
+        self.allow_model_action_choice = allow_model_action_choice
+        self.model_action_choice_min_confidence = (
+            settings.model_action_choice_min_confidence
+            if model_action_choice_min_confidence is None
+            else model_action_choice_min_confidence
+        )
+        # Measured outcomes change slowly and a batch asks for them once per
+        # event, so they are cached briefly rather than re-aggregated 60 times.
+        self._outcome_cache: list[dict] = []
+        self._outcome_cache_at: datetime | None = None
         # When present, actions carrying a policy cooldown are persisted as
         # scheduled jobs instead of running immediately.
         self.state_store = state_store
@@ -73,6 +94,10 @@ class RecoveryPipeline:
 
         classification = None
         recommendation = None
+        outreach = None
+        # Who chose the action. Defaults to the policy's own prescription.
+        action_source = "policy"
+        delay_source = "policy"
         policy_decision = None
         reasoning = None
         execution = None
@@ -97,7 +122,25 @@ class RecoveryPipeline:
                 try:
                     approved_history = self._approved_payment_history(payment_event)
                     recommendation = self.recommender.recommend(
-                        payment_event, classification, approved_history
+                        payment_event,
+                        classification,
+                        approved_history,
+                        # Ask for a choice from the real menu, and give it the
+                        # evidence needed to make one.
+                        available_actions=[
+                            action.value
+                            for action in self.policy_engine.permitted_actions_for(
+                                classification.category
+                                if classification is not None
+                                else None
+                            )
+                        ],
+                        observed_outcomes=self._observed_outcomes(),
+                        cooldown_window=self.policy_engine.cooldown_window_for(
+                            classification.category
+                            if classification is not None
+                            else None
+                        ),
                     )
                 except Exception as exc:
                     logger.warning("Pipeline: Recommendation boundary failed: %s", exc)
@@ -125,6 +168,30 @@ class RecoveryPipeline:
             except Exception as exc:
                 logger.warning("Pipeline: Policy boundary failed: %s", exc)
 
+            # 3b. Bounded action choice.
+            # The policy decides WHETHER to act and publishes the set of
+            # actions it authorises. The advisor may only pick among that
+            # set — it cannot add an action, and cannot touch
+            # automatic_recovery_allowed. Anything outside the set is ignored.
+            #
+            # It must also be confident. An unsure advisor overriding a
+            # deterministic default is how the A/B lost ground, so a low
+            # confidence answer is recorded and then not acted on.
+            if (
+                self.allow_model_action_choice
+                and policy_decision is not None
+                and recommendation is not None
+                and recommendation.suggested_action is not None
+                and policy_decision.automatic_recovery_allowed
+                and recommendation.suggested_action in policy_decision.permitted_actions
+                and recommendation.confidence >= self.model_action_choice_min_confidence
+                and recommendation.suggested_action != policy_decision.action
+            ):
+                policy_decision = policy_decision.model_copy(
+                    update={"action": recommendation.suggested_action}
+                )
+                action_source = "model"
+
             # 4. Reasoning Layer
             try:
                 reasoning = self.reasoner.analyze(payment_event, classification, policy_decision)
@@ -146,9 +213,36 @@ class RecoveryPipeline:
                     error=str(exc)
                 )
 
+            # 4b. Bounded timing choice.
+            # For insufficient funds the cooldown IS the intervention, so
+            # letting the advisor move it is worth more than letting it pick
+            # the action. Same shape of bound: policy publishes a window, the
+            # advisor may move inside it, and a value outside is discarded
+            # rather than clamped — silently snapping 90 days to the maximum
+            # would record a choice the model never made.
+            cooldown = (
+                getattr(policy_decision, "cooldown_seconds", 0) or 0
+                if policy_decision is not None
+                else 0
+            )
+            if (
+                self.allow_model_action_choice
+                and policy_decision is not None
+                and recommendation is not None
+                and recommendation.suggested_delay_seconds is not None
+                and policy_decision.automatic_recovery_allowed
+                and cooldown > 0
+                and recommendation.confidence
+                >= self.model_action_choice_min_confidence
+                and policy_decision.cooldown_min_seconds
+                <= recommendation.suggested_delay_seconds
+                <= policy_decision.cooldown_max_seconds
+            ):
+                cooldown = recommendation.suggested_delay_seconds
+                delay_source = "model"
+
             # 5. Execution
             if policy_decision and policy_decision.automatic_recovery_allowed:
-                cooldown = getattr(policy_decision, "cooldown_seconds", 0) or 0
                 defer = cooldown > 0 and self.state_store is not None
                 try:
                     if defer:
@@ -236,6 +330,26 @@ class RecoveryPipeline:
             else:
                 final_outcome = AuditOutcome.RECORDED
 
+        # 6. Customer outreach for actions that need the customer to act.
+        if (
+            self.outreach is not None
+            and policy_decision is not None
+            and policy_decision.automatic_recovery_allowed
+            and execution is not None
+        ):
+            try:
+                outreach = self.outreach.dispatch(
+                    payment_event,
+                    policy_decision.action,
+                    reasoning.customer_message if reasoning is not None else None,
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Pipeline: Outreach boundary failed: %s", exc)
+                outreach = OutreachResult(
+                    attempted=True, delivered=False,
+                    reason=f"Outreach failed: {exc}",
+                )
+
         return PipelineResult(
             payment_id=payment_id,
             event_id=event_id,
@@ -246,6 +360,9 @@ class RecoveryPipeline:
             execution=execution,
             escalation=escalation,
             audit_write=audit_write,
+            action_source=action_source,
+            delay_source=delay_source,
+            outreach=outreach,
             final_outcome=final_outcome,
             error=error_msg,
             timestamp=now,
@@ -265,24 +382,59 @@ class RecoveryPipeline:
             logger.warning("Pipeline: approved history unavailable: %s", exc)
             return None
 
+    def _observed_outcomes(self, ttl_seconds: int = 30) -> list[dict]:
+        """Recovery rates measured from this system's own audit log.
+
+        Cached for a short window: the numbers move slowly, and re-running the
+        aggregate for every event of a batch would cost more than it informs.
+        Any failure yields an empty list — the advisor then reasons without
+        the evidence, which is exactly how it behaved before.
+        """
+        if self.audit_logger is None:
+            return []
+        now = datetime.now(timezone.utc)
+        if (
+            self._outcome_cache_at is not None
+            and (now - self._outcome_cache_at).total_seconds() < ttl_seconds
+        ):
+            return self._outcome_cache
+        try:
+            # One observation proves nothing; require a couple before showing
+            # a rate the advisor might act on.
+            self._outcome_cache = self.audit_logger.outcome_stats(min_observations=3)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Pipeline: outcome stats unavailable: %s", exc)
+            self._outcome_cache = []
+        self._outcome_cache_at = now
+        return self._outcome_cache
+
     def process_batch(
-        self, events: list[FailedTransactionEvent], max_workers: int = 5
+        self,
+        events: list[FailedTransactionEvent],
+        max_workers: int = 5,
+        on_result: Callable[[FailedTransactionEvent, PipelineResult | None], None] | None = None,
     ) -> list[PipelineResult | None]:
         """Process a batch of events with bounded concurrency.
-        
+
         Uses a thread pool to parallelize I/O bound operations (like reasoning calls)
         across multiple events, while retaining deterministic order.
+
+        ``on_result`` fires from the worker thread the moment an event finishes,
+        which is what lets a caller stream progress rather than wait for the
+        whole batch. It must be thread-safe, and it must never raise — a
+        reporting failure cannot be allowed to lose a processed event.
         """
         import concurrent.futures
         
         results: list[PipelineResult | None] = []
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
             def _safe_process(ev: FailedTransactionEvent) -> PipelineResult | None:
+                result: PipelineResult | None
                 try:
-                    return self.process(ev)
+                    result = self.process(ev)
                 except Exception as exc:
                     logger.exception("Pipeline: fatal error processing event %s: %s", ev.event_id, exc)
-                    return PipelineResult(
+                    result = PipelineResult(
                         payment_id=ev.razorpay_payment_id,
                         event_id=ev.event_id,
                         classification=None,
@@ -295,6 +447,14 @@ class RecoveryPipeline:
                         error=str(exc),
                         timestamp=datetime.now(timezone.utc),
                     )
+                if on_result is not None:
+                    try:
+                        on_result(ev, result)
+                    except Exception:  # noqa: BLE001
+                        logger.warning(
+                            "Pipeline: on_result callback failed for %s", ev.event_id
+                        )
+                return result
 
             # Map events to process() in parallel while preserving order
             futures = [executor.submit(_safe_process, event) for event in events]
@@ -340,5 +500,6 @@ class RecoveryPipeline:
             reason=f"Scheduled for {eligible_at.isoformat()} ({cooldown_seconds}s cooldown)",
             payment_status="not_attempted",
             amount_recovered=0,
+            recovery_delay_seconds=cooldown_seconds,
             timestamp=now,
         )
