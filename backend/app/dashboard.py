@@ -20,6 +20,7 @@ import queue
 import random
 import threading
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from collections.abc import Callable, Iterator
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -1409,22 +1410,32 @@ def run_ab(
     control_store = RecoveryStateStore(database_url="sqlite:///:memory:")
     treatment_store = RecoveryStateStore(database_url="sqlite:///:memory:")
     try:
-        control = _execute_batch(
-            count,
-            seed,
-            True,
-            True,
-            _arm_pipeline(control_store, allow_model_action_choice=False),
-            state_store=control_store,
-        )
-        treatment = _execute_batch(
-            count,
-            seed,
-            True,
-            True,
-            _arm_pipeline(treatment_store, allow_model_action_choice=True),
-            state_store=treatment_store,
-        )
+        # The arms are independent: each has its own state store and the
+        # only experimental variable remains action choice. Running them in
+        # parallel matters when live NIM is configured — otherwise the
+        # second arm waits for a full batch of model calls and can make a
+        # perfectly valid comparison look like a client timeout.
+        with ThreadPoolExecutor(max_workers=2, thread_name_prefix="ab-arm") as executor:
+            control_future = executor.submit(
+                _execute_batch,
+                count,
+                seed,
+                True,
+                True,
+                _arm_pipeline(control_store, allow_model_action_choice=False),
+                state_store=control_store,
+            )
+            treatment_future = executor.submit(
+                _execute_batch,
+                count,
+                seed,
+                True,
+                True,
+                _arm_pipeline(treatment_store, allow_model_action_choice=True),
+                state_store=treatment_store,
+            )
+            control = control_future.result()
+            treatment = treatment_future.result()
     finally:
         control_store.close()
         treatment_store.close()
