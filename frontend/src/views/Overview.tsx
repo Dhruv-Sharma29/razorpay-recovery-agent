@@ -6,6 +6,9 @@
  */
 
 import AiContribution from "../components/AiContribution";
+import GuidedDemo from "../components/GuidedDemo";
+import { useState } from "react";
+
 import KpiTiles from "../components/KpiTiles";
 import LiveFeed from "../components/LiveFeed";
 import OutcomesBar from "../components/OutcomesBar";
@@ -28,6 +31,8 @@ interface OverviewProps {
   running: boolean;
   /** Cases streamed by the current or most recent run. */
   feed?: BatchCaseFrame[];
+  /** Raises a toast when the guided demo finishes. */
+  onNotify?: (message: string) => void;
 }
 
 export default function Overview({
@@ -36,17 +41,36 @@ export default function Overview({
   error,
   running,
   feed = [],
+  onNotify,
 }: OverviewProps) {
+  const [demoOpen, setDemoOpen] = useState(false);
+
   return (
     <div className="view" data-testid="view-overview">
-      <header className="view__header">
-        <h1>Overview</h1>
+      <header className="view__header view__header--split">
+        <div>
+          <h1>Overview</h1>
         <p>
           {summary
             ? `Most recent batch · ${summary.transactions_processed} signals processed`
             : "Run a batch to measure how much revenue the agent recovers."}
-        </p>
+          </p>
+        </div>
+        <button
+          type="button"
+          className="btn btn--ghost"
+          onClick={() => setDemoOpen(true)}
+          data-testid="open-guided-demo"
+        >
+          Run guided demo
+        </button>
       </header>
+
+      <GuidedDemo
+        open={demoOpen}
+        onClose={() => setDemoOpen(false)}
+        onRecovered={(message) => onNotify?.(message)}
+      />
 
       {error && (
         <div className="banner banner--error" role="alert">

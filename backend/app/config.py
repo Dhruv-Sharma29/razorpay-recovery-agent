@@ -31,7 +31,12 @@ class Settings(BaseSettings):
     # Comma-separated list of browser origins allowed to call the API.
     # Wildcards are intentionally avoided: a specific allow-list is required
     # for credentialed CORS requests to work at all.
-    cors_allow_origins: str = "http://localhost:5173,http://localhost:3000"
+    # 4173 is the port playwright.config.ts serves the e2e run on. Without it
+    # every API call from that suite is blocked, so data-dependent UI never
+    # renders and the contrast checks silently skip it.
+    cors_allow_origins: str = (
+        "http://localhost:5173,http://localhost:3000,http://localhost:4173"
+    )
 
     @property
     def cors_origins_list(self) -> list[str]:

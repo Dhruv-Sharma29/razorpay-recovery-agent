@@ -2,7 +2,7 @@
  * App shell tests: view routing and the batch flow wiring.
  */
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "../App";
@@ -83,7 +83,10 @@ describe("App", () => {
     fireEvent.click(screen.getByTestId("run-batch-btn"));
 
     await waitFor(() => {
-      expect(screen.getByText("₹2.5K")).toBeInTheDocument();
+      // Scoped to the KPI tiles: the top-bar ticker shows the same figure.
+      expect(
+        within(screen.getByTestId("kpi-tiles")).getByText("₹2.5K"),
+      ).toBeInTheDocument();
     });
     expect(api.runBatch).toHaveBeenCalledWith(25, {
       runScheduler: true,
@@ -111,11 +114,34 @@ describe("App", () => {
     });
   });
 
+  it("confirms a reset, stating that the audit log survived it", async () => {
+    // Reset throws work away and used to do so silently; the audit guarantee
+    // is the half worth saying out loud.
+    vi.mocked(api.resetState).mockResolvedValue({
+      cleared: true,
+      recovery_state_cleared: true,
+      audit_log_preserved: true,
+      note: "",
+    });
+    render(<App />);
+    fireEvent.click(screen.getByTestId("run-options-toggle"));
+    fireEvent.click(screen.getByTestId("reset-btn"));
+    await waitFor(() =>
+      expect(screen.getByTestId("toast")).toHaveTextContent(
+        /audit log preserved/i,
+      ),
+    );
+  });
+
   it("clears the shown batch on reset", async () => {
     vi.mocked(api.runBatch).mockResolvedValue(SUMMARY);
     render(<App />);
     fireEvent.click(screen.getByTestId("run-batch-btn"));
-    await waitFor(() => expect(screen.getByText("₹2.5K")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(
+        within(screen.getByTestId("kpi-tiles")).getByText("₹2.5K"),
+      ).toBeInTheDocument(),
+    );
 
     fireEvent.click(screen.getByTestId("run-options-toggle"));
     fireEvent.click(screen.getByTestId("reset-btn"));

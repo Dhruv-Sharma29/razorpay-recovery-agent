@@ -21,6 +21,7 @@ import {
   runGoldenPath,
 } from "./api/client";
 import Sidebar, { type ViewKey } from "./layout/Sidebar";
+import { Toaster, useToast } from "./components/Toast";
 import TopBar from "./layout/TopBar";
 import type {
   AuditRecord,
@@ -130,6 +131,7 @@ export default function App() {
   const [ab, setAb] = useState<AbResult | null>(null);
   const [abRunning, setAbRunning] = useState(false);
   const [abError, setAbError] = useState<string | null>(null);
+  const { toasts, push: pushToast, dismiss: dismissToast } = useToast();
   const [batchError, setBatchError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [lastRun, setLastRun] = useState<{ count: number; seconds: number } | null>(
@@ -262,11 +264,21 @@ export default function App() {
     setRunning(true);
     setBatchError(null);
     try {
-      await resetState();
+      const outcome = await resetState();
       setSummary(null);
       setLastRun(null);
+      setFeed([]);
       refreshAudit();
       refreshRisk();
+      refreshLearned();
+      // Reset is the one control that throws work away, and it was silent.
+      // The audit guarantee is the reassuring half, so it is stated outright.
+      pushToast(
+        outcome.audit_log_preserved
+          ? "Recovery state cleared — audit log preserved"
+          : "Recovery state cleared",
+        "ok",
+      );
     } catch (err) {
       setBatchError(err instanceof Error ? err.message : "Failed to reset");
     } finally {
@@ -332,6 +344,14 @@ export default function App() {
           onReset={handleReset}
           lastRunSeconds={lastRun?.seconds ?? null}
           lastRunCount={lastRun?.count ?? null}
+          // Risk is derived from the audit log, so the ticker keeps its value
+          // across a reload; the batch summary only covers this session.
+          totalRecovered={
+            risk?.total_recovered_amount ??
+            summary?.total_recovered_amount ??
+            null
+          }
+          recoveryRate={summary?.recovery_rate_of_recoverable ?? null}
         />
 
         <main className="app-content">
@@ -342,6 +362,7 @@ export default function App() {
               error={batchError}
               running={running}
               feed={feed}
+              onNotify={(message) => pushToast(message, "ok")}
             />
           )}
           {view === "cases" && (
@@ -369,6 +390,7 @@ export default function App() {
           )}
         </main>
       </div>
+      <Toaster toasts={toasts} onDismiss={dismissToast} />
     </div>
   );
 }

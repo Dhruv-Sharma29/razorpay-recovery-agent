@@ -1,0 +1,32 @@
+# One-click backend deploy. A persistent disk is not optional: without it
+# every restart would wipe the append-only audit log and the idempotency
+# ledger that stops a payment being retried twice.
+services:
+  - type: web
+    name: reflow-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /health
+    disk:
+      name: reflow-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: DATABASE_URL
+        value: sqlite:////data/recovery.db
+      # Comma-separated, no trailing slash, scheme included. The browser
+      # blocks every request from an origin that is not listed here, so this
+      # must name the exact Vercel domain the UI is served from. Vercel's
+      # per-deployment preview URLs each count as a separate origin.
+      - key: CORS_ALLOW_ORIGINS
+        value: https://reflow-recovery-agent.vercel.app
+      # Must match VITE_API_KEY in the Vercel project. Leave unset to run the
+      # API unauthenticated.
+      - key: API_SECRET_KEY
+        sync: false
+      - key: NIM_API_KEY
+        sync: false
+      - key: NIM_MODEL
+        value: nvidia/nemotron-3-nano-omni-30b-a3b-reasoning
