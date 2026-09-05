@@ -1973,6 +1973,10 @@ body {
   cursor: not-allowed;
 }
 
+.manual-entry__rzp {
+  margin-bottom: 1.1rem;
+}
+
 /* --------------------------------------------------- */
 /* AI contribution (secondary, explanatory)            */
 /* --------------------------------------------------- */
