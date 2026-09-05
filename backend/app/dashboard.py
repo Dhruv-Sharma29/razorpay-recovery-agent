@@ -741,6 +741,49 @@ def _sse(event: str, data: Any) -> str:
     return f"event: {event}\ndata: {json.dumps(data, default=str)}\n\n"
 
 
+# What acting wrongly costs, in paise. A stated model, not measured data —
+# the same standing as the capture rates in the executor, and labelled as such
+# in the response so nobody mistakes it for an invoice.
+#
+# Counting only gross recoveries makes any agent look good, because retrying
+# everything always recovers something. These are the prices of the attempts
+# that should not have been made.
+_COST_PER_ISSUER_ATTEMPT = 200          # Rs 2  — gateway and issuer processing
+_COST_PER_CUSTOMER_FRICTION = 500       # Rs 5  — chasing someone wrongly
+_COST_PER_DOUBLE_CHARGE_RISK = 2000     # Rs 20 — a dispute a human must handle
+
+
+def _restraint_cost(naive: dict[str, int]) -> dict[str, Any]:
+    """Price the attempts the policy declined to make.
+
+    "85 attempts avoided" is a count nobody can weigh. The same restraint
+    stated in rupees is comparable against the money recovered, which is the
+    only way to argue that stopping was worth more than chasing.
+    """
+    issuer = naive["extra_attempts"] * _COST_PER_ISSUER_ATTEMPT
+    # Retrying past the cap is where a customer gets charged twice, and a
+    # dispute costs far more than the retry that caused it.
+    double_charge = naive["attempts_past_retry_cap"] * _COST_PER_DOUBLE_CHARGE_RISK
+    # A blind retry on a cause nobody understood still reaches the customer.
+    friction = (
+        naive["blind_retries_on_unknown_cause"] + naive["non_retryable_retried"]
+    ) * _COST_PER_CUSTOMER_FRICTION
+    return {
+        "cost_avoided": issuer + double_charge + friction,
+        "cost_breakdown": {
+            "issuer_attempts": issuer,
+            "double_charge_exposure": double_charge,
+            "customer_friction": friction,
+        },
+        "cost_model": {
+            "per_issuer_attempt": _COST_PER_ISSUER_ATTEMPT,
+            "per_customer_friction": _COST_PER_CUSTOMER_FRICTION,
+            "per_double_charge_risk": _COST_PER_DOUBLE_CHARGE_RISK,
+            "stated_not_measured": True,
+        },
+    }
+
+
 def _progress_record(
     index: int,
     total: int,
@@ -1102,6 +1145,7 @@ def _execute_batch(
         "advisor": advisor,
         "restraint": {
             **naive,
+            **_restraint_cost(naive),
             "note": (
                 "What a retry-everything agent would have done with the cases "
                 "this one refused. Each extra attempt is a real issuer hit and "
@@ -1416,8 +1460,15 @@ def run_ab(
                 else _median(treatment) - _median(control)
             ),
         },
-        # A null result must never be presented as evidence.
-        "conclusive": bool(choices),
+        # Conclusive means the comparison could actually run, not that the
+        # advisor changed something. A model that answered, had real choices
+        # available, and agreed with policy every time has produced a finding
+        # — reporting that as "inconclusive" throws the finding away.
+        "conclusive": bool(choices)
+        or bool(
+            treatment["advisor"]["model_answers"]
+            and treatment["advisor"]["events_with_alternatives"]
+        ),
         "advisor": treatment["advisor"],
         "note": _ab_note(choices, count, treatment["advisor"]),
     }

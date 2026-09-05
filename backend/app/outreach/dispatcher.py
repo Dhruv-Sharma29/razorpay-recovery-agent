@@ -40,6 +40,7 @@ _CONTACT_ACTIONS: frozenset[PolicyAction] = frozenset(
         PolicyAction.RESEND_AUTH_PROMPT,
         PolicyAction.SWITCH_PAYMENT_METHOD,
         PolicyAction.SEND_PAYMENT_REMINDER,
+        PolicyAction.SEND_CHECKOUT_LINK,
     }
 )
 

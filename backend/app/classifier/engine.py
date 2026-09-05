@@ -62,6 +62,24 @@ _SPECIFIC_CODE_RULES: tuple[_CodeRule, ...] = (
         "Error code PAYMENT_OVERDUE maps to overdue_receivable",
     ),
     _CodeRule(
+        "CHECKOUT_ABANDONED",
+        FailureCategory.CHECKOUT_ABANDONED,
+        "code.checkout_abandoned",
+        "Error code CHECKOUT_ABANDONED maps to checkout_abandoned",
+    ),
+    _CodeRule(
+        "CART_ABANDONED",
+        FailureCategory.CHECKOUT_ABANDONED,
+        "code.checkout_abandoned",
+        "Error code CART_ABANDONED maps to checkout_abandoned",
+    ),
+    _CodeRule(
+        "PAYMENT_NOT_INITIATED",
+        FailureCategory.CHECKOUT_ABANDONED,
+        "code.checkout_abandoned",
+        "Error code PAYMENT_NOT_INITIATED maps to checkout_abandoned",
+    ),
+    _CodeRule(
         "INSUFFICIENT_FUNDS",
         FailureCategory.INSUFFICIENT_FUNDS,
         "code.insufficient_funds",

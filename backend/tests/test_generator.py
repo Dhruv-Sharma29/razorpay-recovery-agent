@@ -63,6 +63,7 @@ EXPECTED_CATEGORIES = {
     "authentication_failure",
     "unknown",
     "overdue_receivable",
+    "checkout_abandoned",
 }
 
 

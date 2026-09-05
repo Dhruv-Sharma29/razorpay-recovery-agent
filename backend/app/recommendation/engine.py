@@ -16,6 +16,7 @@ from typing import Any
 import httpx
 
 from app.nim_retry import with_retries
+from app.recommendation.cache import RecommendationCache
 
 from app.classifier.result import ClassificationResult
 from app.config import settings
@@ -28,6 +29,10 @@ from app.recommendation.result import (
 )
 
 logger = logging.getLogger(__name__)
+
+# One cache for the process: the same question asked by any recommender gets
+# the same answer, which is the point.
+_SHARED_CACHE = RecommendationCache()
 
 _DEFAULT_TIMEOUT = 30.0
 _PROMPT_VERSION = "1.2.0"
@@ -246,7 +251,13 @@ class RecoveryRecommender:
         nim_base_url: str | None = None,
         nim_model: str | None = None,
         timeout: float = _DEFAULT_TIMEOUT,
+        cache: RecommendationCache | None = None,
     ) -> None:
+        # Shared by default. The A/B builds a separate recommender per arm, so
+        # a per-instance cache would never be hit across arms — which is
+        # precisely the case worth caching, both for speed and because it is
+        # what makes both arms reason from identical advice.
+        self._cache = cache if cache is not None else _SHARED_CACHE
         self._api_key = nim_api_key if nim_api_key is not None else settings.nim_api_key
         self._base_url = nim_base_url if nim_base_url is not None else settings.nim_base_url
         self._model = nim_model if nim_model is not None else settings.nim_model
@@ -276,6 +287,17 @@ class RecoveryRecommender:
                 "NIM_API_KEY not configured; skipped NIM call",
                 RecommendationFallbackReason.API_KEY_UNAVAILABLE,
             )
+
+        cache_key = self._cache.build_key(
+            payment_event,
+            classification,
+            available_actions,
+            observed_outcomes,
+            cooldown_window,
+        )
+        cached = self._cache.get(cache_key)
+        if cached is not None:
+            return cached
 
         payload = {
             "model": self._model,
@@ -318,7 +340,9 @@ class RecoveryRecommender:
 
             response = with_retries(_send, label="NIM recommendation")
             latency_ms = int((time.perf_counter() - started) * 1000)
-            return _parse_response(response.json(), self._model, latency_ms)
+            result = _parse_response(response.json(), self._model, latency_ms)
+            self._cache.put(cache_key, result)
+            return result
         except httpx.TimeoutException:
             return _fallback(
                 payment_event,

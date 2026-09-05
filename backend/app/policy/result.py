@@ -22,6 +22,7 @@ class PolicyAction(str, Enum):
     SWITCH_PAYMENT_METHOD = "switch_payment_method"
     RESEND_AUTH_PROMPT = "resend_auth_prompt"
     SEND_PAYMENT_REMINDER = "send_payment_reminder"
+    SEND_CHECKOUT_LINK = "send_checkout_link"
     ESCALATE = "escalate"
     NO_ACTION = "no_action"
 

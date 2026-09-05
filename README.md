@@ -6,8 +6,8 @@
 ![fastapi](https://img.shields.io/badge/API-FastAPI-009688?logo=fastapi&logoColor=white)
 ![react](https://img.shields.io/badge/frontend-React%2019-149eca?logo=react&logoColor=white)
 ![executor](https://img.shields.io/badge/default%20executor-simulated-lightgrey)
-![tests](https://img.shields.io/badge/tests-810%20passing-1c8a5e)
-![backend](https://img.shields.io/badge/backend-596-1c8a5e)
+![tests](https://img.shields.io/badge/tests-851%20passing-1c8a5e)
+![backend](https://img.shields.io/badge/backend-651-1c8a5e)
 ![frontend](https://img.shields.io/badge/frontend-200-1c8a5e)
 ![e2e](https://img.shields.io/badge/end--to--end-14-1c8a5e)
 
@@ -41,7 +41,7 @@ carries `simulated: true` until a real gateway is actually contacted.
 - **Overdue receivables** — a 72-hour chaser rather than a retry
 - **Subscriptions** — mandate status and tokenised charges exist, but there is
   no subscription-specific policy rule yet
-- **Checkout abandonment** — not covered
+- **Checkout abandonment** — a one-hour nudge, capped at two messages
 
 NIM is optional. Without `NIM_API_KEY` the pipeline is fully usable and records
 a deterministic, policy-grounded fallback.
@@ -199,11 +199,11 @@ cd ../frontend && npm test && npm run build
 npx playwright test          # contrast and layout, needs the dev server
 ```
 
-**810 tests**, last verified locally on 2026-09-05:
+**851 tests**, last verified locally on 2026-09-05:
 
 | Suite | Result |
 | --- | --- |
-| Backend (pytest) | **596 passed**, 2 deselected |
+| Backend (pytest) | **651 passed**, 2 deselected |
 | Frontend (vitest) | **200 passed** |
 | End-to-end (Playwright) | **14** — 13 pass standalone, all 14 with a backend running |
 | Production build | successful |

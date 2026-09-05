@@ -76,6 +76,7 @@ so the audit trail says who decided what.
 | `network_error` | `immediate_retry` | 1 | — | `scheduled_retry` |
 | `bank_decline` | `switch_payment_method` | 1 | — | `scheduled_retry` |
 | `authentication_failure` | `resend_auth_prompt` | 1 | — | `scheduled_retry` |
+| `checkout_abandoned` | `send_checkout_link` | 2 | 1h | `send_payment_reminder` |
 | `overdue_receivable` | `send_payment_reminder` | 3 | 72h | — |
 | `unknown` | `no_action` | 0 | — | — |
 
