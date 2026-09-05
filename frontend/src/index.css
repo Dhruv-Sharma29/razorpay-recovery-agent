@@ -877,9 +877,20 @@ body {
 
 .audit-table {
   width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
   font-size: 0.82rem;
 }
+
+/* Keep the five data columns and the control column stable as content
+   changes. The fixed layout prevents a long payment ID from resizing every
+   other column. */
+.audit-table__col--payment { width: 24%; }
+.audit-table__col--cause { width: 16%; }
+.audit-table__col--action { width: 16%; }
+.audit-table__col--outcome { width: 17%; }
+.audit-table__col--recovered { width: 15%; }
+.audit-table__col--controls { width: 12%; }
 
 .audit-table th {
   background: var(--bg-subtle);
@@ -898,7 +909,20 @@ body {
   padding: 0.65rem 1rem;
   border-bottom: 1px solid var(--border-default);
   color: var(--text-secondary);
-  white-space: nowrap;
+  min-width: 0;
+  overflow-wrap: break-word;
+  word-break: normal;
+  vertical-align: middle;
+}
+
+.audit-table th:nth-child(5),
+.audit-table td:nth-child(5) {
+  text-align: right;
+}
+
+.audit-table th:last-child,
+.audit-table td:last-child {
+  text-align: center;
 }
 
 .audit-table tr:last-child td {
@@ -1669,9 +1693,10 @@ body {
 }
 
 .chain {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.85rem;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-items: start;
+  gap: 1rem 1.25rem;
   padding: 0.35rem 0;
 }
 
@@ -1679,7 +1704,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 0.15rem;
-  min-width: 150px;
+  min-width: 0;
 }
 
 .chain__label {
@@ -1691,9 +1716,29 @@ body {
 }
 
 .chain__value {
+  min-width: 0;
   font-size: 0.8rem;
   color: var(--text-primary);
-  word-break: break-word;
+  line-height: 1.45;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+@media (max-width: 1080px) {
+  .chain {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .chain {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .audit-table th,
+  .audit-table td {
+    padding-inline: 0.65rem;
+  }
 }
 
 .cases__pager {
@@ -1983,13 +2028,18 @@ body {
 
 .ai-card__grid {
   display: grid;
+  /* Each metric owns a bounded track. minmax(0, 1fr) is important here:
+     long model identifiers must shrink and wrap inside their own track rather
+     than expand the grid or paint over the next metric. */
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 1.25rem;
+  align-items: start;
 }
 
 .ai-metric {
   display: flex;
   flex-direction: column;
+  align-items: stretch;
   gap: 0.3rem;
   min-width: 0;
 }
@@ -2002,21 +2052,87 @@ body {
   letter-spacing: 0.05em;
   color: var(--text-secondary);
   line-height: 1.4;
+  min-width: 0;
+  overflow-wrap: normal;
   /* Keep values aligned when a longer heading wraps to a second line. */
   min-height: 2.8em;
 }
 
 .ai-metric__value {
-  font-size: 1.4rem;
-  font-weight: 700;
-  color: var(--text-primary);
+  display: block;
+  min-width: 0;
   line-height: 1.2;
+  /* Prefer normal word boundaries. break-word is only a last-resort guard for
+     an unbroken external token and does not split ordinary prose. */
+  overflow-wrap: break-word;
+  word-break: normal;
 }
 
 .ai-metric__note {
+  display: block;
+  min-width: 0;
   font-size: 0.72rem;
   color: var(--text-secondary);
   line-height: 1.45;
+  overflow-wrap: break-word;
+}
+
+/* The recommendation identifier is unbounded external data. Allow breaks at
+   separators and, if necessary, within a token so it can never escape its
+   own column. */
+.ai-metric__value--model {
+  overflow-wrap: normal;
+  word-break: normal;
+  font-size: 1.25rem;
+}
+
+/* Keep the compact duration legible as a single metric on desktop/tablet.
+   At widths too narrow to support that, the regular value wrapping rule below
+   releases it instead of letting it overflow. */
+.ai-metric__value--latency {
+  white-space: nowrap;
+}
+
+/* Policy outcomes remain one self-contained value and can wrap cleanly at
+   spaces or separators without ever intruding into an adjacent grid track. */
+.ai-metric__value--policy {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.35rem;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+.ai-policy__part {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.3rem;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.ai-policy__number {
+  flex: none;
+}
+
+.ai-policy__word {
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.ai-policy__separator {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
+/* Model telemetry follows the same prominent value treatment while remaining
+   a compact, single-line readout. */
+.ai-metric__value--telemetry {
+  white-space: nowrap;
 }
 
 .ai-card__body {
@@ -2047,6 +2163,11 @@ body {
 @media (max-width: 560px) {
   .ai-card__grid {
     grid-template-columns: 1fr;
+  }
+
+  .ai-metric__value--latency,
+  .ai-metric__value--telemetry {
+    white-space: normal;
   }
 
   /* Name and amount share the first line; the bar spans the second, so it
@@ -2234,6 +2355,7 @@ body {
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
   gap: 1rem;
   margin-bottom: 1.25rem;
+  align-items: start;
 }
 
 .learning__lede,
@@ -2333,6 +2455,13 @@ body {
   margin-top: 0.9rem;
   border-collapse: collapse;
   font-size: 0.78rem;
+}
+
+.ab__error {
+  margin-top: 0.7rem;
+  padding: 0.55rem 0.75rem;
+  font-size: 0.78rem;
+  line-height: 1.35;
 }
 
 .ab__table th,
@@ -2438,7 +2567,7 @@ body {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: rgba(244, 246, 251, 0.72);
+  color: var(--text-primary);
 }
 
 .ticker__value {
@@ -2451,7 +2580,7 @@ body {
 
 .ticker__rate {
   font-size: 0.7rem;
-  color: rgba(244, 246, 251, 0.72);
+  color: var(--text-secondary);
   white-space: nowrap;
 }
 

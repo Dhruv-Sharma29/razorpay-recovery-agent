@@ -57,8 +57,8 @@ export default function AbPanel({
     <section className="card" data-testid="ab-panel">
       <h2 className="card-title">Did the AI earn its place?</h2>
       <p className="ab__lede">
-        The same batch, run twice. The only difference is whether the advisor
-        may choose the action from the set policy permits.
+        Same batch, run twice. The only difference is whether the advisor can
+        choose a policy-permitted action.
       </p>
 
       <button
@@ -69,12 +69,12 @@ export default function AbPanel({
         data-testid="run-ab-btn"
       >
         {running && <span className="btn__spinner" aria-hidden="true" />}
-        {running ? "Measuring…" : "Run the comparison"}
+        {running ? "Measuring…" : "Run comparison"}
       </button>
 
       {error && (
-        <div className="banner banner--error" role="alert">
-          <strong>Couldn't run the comparison.</strong> {error}
+        <div className="banner banner--error ab__error" role="alert">
+          <strong>Comparison failed.</strong> Batch timed out. Try a smaller count.
         </div>
       )}
 
