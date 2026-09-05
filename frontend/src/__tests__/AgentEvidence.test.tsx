@@ -57,6 +57,13 @@ function abResult(over: Partial<AbResult> = {}): AbResult {
       median_seconds_to_recovery: 43200,
     },
     conclusive: true,
+    advisor: {
+      events_with_alternatives: 11,
+      model_answers: 100,
+      proposed_change: 3,
+      blocked_by_confidence: 0,
+      applied: 3,
+    },
     ...over,
   };
 }
@@ -136,6 +143,30 @@ describe("AbPanel", () => {
       "No choices were made.",
     );
     expect(screen.queryByTestId("ab-conclusive")).not.toBeInTheDocument();
+  });
+
+  it("shows the ceiling on what the advisor could have changed", () => {
+    // A delta of 3 means something different against 11 opportunities than
+    // against 100, so the opportunity count is shown either way.
+    render(
+      <AbPanel result={abResult()} running={false} error={null} onRun={vi.fn()} />,
+    );
+    expect(screen.getByTestId("ab-opportunity")).toHaveTextContent(
+      /11 of 30 events offered more than one permitted action/i,
+    );
+  });
+
+  it("shows the ceiling on an inconclusive run too", () => {
+    render(
+      <AbPanel
+        result={abResult({ conclusive: false, note: "Nothing to choose." })}
+        running={false}
+        error={null}
+        onRun={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("ab-opportunity")).toBeInTheDocument();
+    expect(screen.getByTestId("ab-inconclusive")).toBeInTheDocument();
   });
 
   it("says how many actions the advisor actually changed", () => {

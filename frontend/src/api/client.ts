@@ -22,6 +22,7 @@ import type {
   BatchCaseFrame,
   BatchSummary,
   LearnedOutcomes,
+  RazorpayStatus,
   DashboardResult,
   PaymentEventPayload,
   ProviderStatus,
@@ -271,6 +272,13 @@ export async function streamBatch(
     throw new Error("Batch stream ended before reporting a summary");
   }
   return summary;
+}
+
+/** Whether a real recovery call would reach Razorpay right now. */
+export async function fetchRazorpayStatus(): Promise<RazorpayStatus> {
+  return requestJson<RazorpayStatus>(
+    `${API_BASE}/api/dashboard/razorpay-check`,
+  );
 }
 
 /** What the agent has measured about its own recovery actions. */

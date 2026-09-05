@@ -1,153 +1,88 @@
 # Reflow
 
-**A focused revenue-recovery agent for failed payments and subscription renewals.**
+**A bounded revenue-recovery agent for failed payments and overdue receivables.**
 
 ![python](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)
 ![fastapi](https://img.shields.io/badge/API-FastAPI-009688?logo=fastapi&logoColor=white)
 ![react](https://img.shields.io/badge/frontend-React%2019-149eca?logo=react&logoColor=white)
 ![executor](https://img.shields.io/badge/default%20executor-simulated-lightgrey)
+![tests](https://img.shields.io/badge/tests-810%20passing-1c8a5e)
+![backend](https://img.shields.io/badge/backend-596-1c8a5e)
+![frontend](https://img.shields.io/badge/frontend-200-1c8a5e)
+![e2e](https://img.shields.io/badge/end--to--end-14-1c8a5e)
 
-A safety-first AI-assisted recovery pipeline for failed Razorpay-style payment events. The system asks NVIDIA NIM (Nemotron) to detect revenue at risk and recommend a candidate intervention, independently classifies failures with deterministic rules, validates the recommendation through bounded recovery policy, executes only policy-approved actions in a sandbox executor, and appends every result to a SQLite audit log for the React dashboard.
+Reflow detects revenue at risk, decides what to do about it, and — crucially —
+knows when to stop. A deterministic policy engine is the sole authority on
+whether money moves. NVIDIA NIM (Nemotron) advises: it may choose between
+actions the policy has already authorised, and can never add one, raise a
+limit, or overturn a refusal.
 
-> **Nemotron detects and recommends. Rules constrain and authorize. The executor acts. The audit log records.**
+> **Nemotron advises within bounds. Policy authorises. The executor acts. The audit log records, and can prove it was not edited.**
+
+- **[docs/PITCH.md](docs/PITCH.md)** — what it does, with measured numbers
+- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — request path, safety properties, and what enforces each
 
 ## Demo
 
 ![Reflow recovery console](docs/demo.gif)
 
-When the frontend is served behind a trusted proxy that supplies the API key, the fastest browser demo is the dashboard's **Run golden path** action. It creates a fresh, below-cap insufficient-funds event and sends it through the complete pipeline.
+The fastest browser demo is **Run guided demo** on the Overview, which sends one
+below-cap insufficient-funds event through the complete pipeline and logs what
+each stage decided.
 
-## Current implementation status
+## What works today
 
-The golden path is implemented end to end with synthetic/Razorpay-shaped events:
+Everything runs on synthetic, Razorpay-shaped events by default. The
+`SimulatedPaymentExecutor` makes no network calls and reports simulated
+captures, so recovery can be measured without touching a gateway. Every result
+carries `simulated: true` until a real gateway is actually contacted.
 
-```text
-payment event → rules-first classification → bounded policy decision
-→ AI risk recommendation → rules-first classification → bounded policy gate
-→ Nemotron explanation (or safe fallback) → simulated execution → escalation/audit → dashboard
-```
+- **Payment failures** — classified, bounded, retried or refused
+- **Overdue receivables** — a 72-hour chaser rather than a retry
+- **Subscriptions** — mandate status and tokenised charges exist, but there is
+  no subscription-specific policy rule yet
+- **Checkout abandonment** — not covered
 
-The default `SimulatedPaymentExecutor` (also available as the backwards-compatible `MockExecutor`) makes no network calls. Authorized actions are reported as simulated captures so the demo can measure recovered amount without touching a payment gateway.
-
-An opt-in `RazorpayTestExecutor` is included. Set `EXECUTOR_MODE=razorpay_test` only with Razorpay test keys. The adapter refuses non-test key IDs (`rzp_test_`) and re-checks the configured amount cap before making a request. It is a sandbox integration for this project, not a production payment adapter.
-
-NIM is optional. Without `NIM_API_KEY`, the pipeline remains fully usable and records a deterministic, policy-grounded fallback explanation.
-
-## Architecture
-
-```text
-                         Failed payment event
-                                  │
-                                  ▼
-                       ┌────────────────────┐
-                       │ Ingestion / Pydantic│
-                       │ event validation    │
-                       └──────────┬─────────┘
-                                  ▼
-                       ┌────────────────────┐
-                       │ RecoveryRecommender│
-                       │ Nemotron via NIM   │
-                       │ advisory candidate │
-                       └──────────┬─────────┘
-                                  ▼
-                       ┌────────────────────┐
-                       │ FailureClassifier  │
-                       │ deterministic rules│
-                       └──────────┬─────────┘
-                                  ▼
-                       ┌────────────────────┐
-                       │ RecoveryPolicyEngine│
-                       │ bounded authority   │
-                       └───────┬────────────┘
-                               │
-                 ┌─────────────┴─────────────┐
-                 ▼                           ▼
-       ┌────────────────────┐      ┌──────────────────┐
-       │ RecoveryReasoner   │      │ EscalationHandler│
-       │ final explanation  │      │ fail-closed      │
-       │ explanation only   │      └────────┬─────────┘
-       └──────────┬─────────┘               │
-                  └──────────────┬─────────┘
-                                 ▼
-                       ┌────────────────────┐
-                       │ RecoveryExecutor   │
-                       │ simulated or test  │
-                       └──────────┬─────────┘
-                                  ▼
-                       ┌────────────────────┐
-                       │ Append-only SQLite │
-                       │ AuditLogger        │
-                       └──────────┬─────────┘
-                                  ▼
-                       ┌────────────────────┐
-                       │ React + TypeScript │
-                       │ operations dashboard│
-                       └────────────────────┘
-```
-
-Every event is traceable as:
-
-```text
-CAUSE → RULE → BOUND → ACTION → OUTCOME
-```
-
-Nemotron receives the normalized event and deterministic evidence to produce an advisory risk/recommendation result, then receives the final policy decision to explain it. Its recommendation is untrusted and cannot authorize execution. If NIM is unavailable, times out, or returns malformed JSON, the pipeline uses deterministic fallback data without changing the policy decision.
-
-## Failure taxonomy
-
-| Category | Typical signals | Policy action |
-| --- | --- | --- |
-| `insufficient_funds` | Balance/insufficient-funds message or code | Scheduled retry |
-| `expired_card` | Expired card or inactive mandate signal | Trigger re-authorization |
-| `network_error` | `GATEWAY_ERROR`, timeout, network failure | One immediate retry |
-| `bank_decline` | Issuer/card decline signal | Switch payment method |
-| `authentication_failure` | OTP, 3DS, or authentication failure | Resend auth prompt |
-| `unknown` | No clean rule match | No automatic action; escalate |
-
-Classification is local, deterministic, and rules-first. Specific error codes take precedence over message patterns; ambiguous events fail closed.
-
-## Recovery policy and safety limits
-
-| Root cause | Action | Category limit |
-| --- | --- | --- |
-| Insufficient funds | Retry after the 24-hour policy cooldown | Maximum 2 retries |
-| Expired card/mandate | Trigger re-authorization | 1 attempt |
-| Network/gateway error | Immediate retry | 1 retry |
-| Bank decline | Switch to an alternate method | 1 switch |
-| Authentication failure | Resend authentication prompt | 1 resend |
-| Unknown | Escalate | 0 automatic actions |
-
-Global guards are enforced by `RecoveryPolicyEngine`:
-
-- Maximum 3 total automated attempts per transaction.
-- Automatic recovery is disabled above `AUTO_RECOVERY_AMOUNT_LIMIT` (default: `500000` paise / ₹5,000).
-- Invalid amounts, missing classifications, exhausted limits, and unknown failures escalate.
-- The executor runs only when `automatic_recovery_allowed` is true.
-- Escalations, stops, execution failures, reasoning failures, and audit failures are recorded.
-- Neither Nemotron nor the dashboard can authorize or expand a recovery action.
+NIM is optional. Without `NIM_API_KEY` the pipeline is fully usable and records
+a deterministic, policy-grounded fallback.
 
 ## API
 
-`GET /health` is public. All `/api/dashboard/*` routes require the `X-API-Key` header matching `API_SECRET_KEY`.
+`GET /health` is public. All `/api/dashboard/*` routes require an `X-API-Key`
+header matching `API_SECRET_KEY`, unless that setting is empty.
 
-Start the backend from the `backend/` directory. It exposes:
+### Recovery
 
 | Method | Endpoint | Purpose |
 | --- | --- | --- |
-| `GET` | `/health` | Service health check |
 | `POST` | `/api/dashboard/process` | Process one validated payment event |
-| `GET` | `/api/dashboard/audit` | Read the append-only audit records |
-| `GET` | `/api/dashboard/audit/export` | Export the audit log as CSV |
 | `POST` | `/api/dashboard/run-batch` | Process N fresh synthetic failures and report measured recovery |
+| `GET` | `/api/dashboard/run-batch/stream` | The same batch as server-sent events, one frame per case |
+| `POST` | `/api/dashboard/golden-path` | Run a fixed below-cap insufficient-funds event |
 | `POST` | `/api/dashboard/run-scheduled` | Execute deferred retries whose cooldown has elapsed (`?now=` to skip the wait) |
 | `GET` | `/api/dashboard/scheduled` | List scheduled retry jobs |
-| `GET` | `/api/dashboard/risk` | Revenue-at-risk rollups by merchant, repeat customer, and subscription |
-| `GET` | `/api/dashboard/telemetry` | Recovery, fallback, cache, and latency metrics |
-| `GET` | `/api/dashboard/provider` | NIM provider/model status without exposing the API key |
-| `POST` | `/api/dashboard/golden-path` | Run a fresh insufficient-funds demo event |
 | `POST` | `/api/dashboard/reset` | Clear recovery state for a clean demo. Never clears audit history |
 
-Amounts are supplied in the smallest currency unit (for INR, paise). A minimal request looks like:
+### Evidence
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| `POST` | `/api/dashboard/run-ab` | Run the same batch twice — with and without the advisor choosing the action — and report the difference |
+| `GET` | `/api/dashboard/learned` | Recovery rates measured from the audit log, and fed back to the advisor |
+| `GET` | `/api/dashboard/risk` | Revenue-at-risk rollups by merchant, repeat customer, and subscription |
+| `GET` | `/api/dashboard/telemetry` | Recovery, fallback, cache, and latency metrics |
+| `GET` | `/api/dashboard/audit` | Read the append-only audit records |
+| `GET` | `/api/dashboard/audit/export` | Export the audit log as CSV |
+
+### Integration
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/dashboard/provider` | NIM provider/model status, without exposing the key |
+| `GET` | `/api/dashboard/razorpay-check` | Whether a real recovery call would reach Razorpay right now |
+| `POST` | `/api/dashboard/webhook/razorpay` | Ingest a live `payment.failed` notification (HMAC-verified) |
+
+Amounts are in the smallest currency unit — paise for INR. A minimal request:
 
 ```json
 {
@@ -168,11 +103,17 @@ Amounts are supplied in the smallest currency unit (for INR, paise). A minimal r
 }
 ```
 
-The submitted `failure_category` is part of the validated event schema; the backend independently derives the effective category with `FailureClassifier`.
+The submitted `failure_category` is part of the schema but is **never trusted**:
+`FailureClassifier` derives the effective category independently from the error
+code.
 
-Audit records persist to `DATABASE_URL` (default `sqlite:///./recovery.db`), so they survive a backend restart. `GET /api/dashboard/audit` supports pagination and filtering: `?limit=&offset=` page the log (omit `limit` to return all) and `?outcome=recovered` filters by final outcome; the response includes `count` (this page) and `total` (all matching records).
+`run-batch` accepts `count` from 1 to 500, `seed=` for a reproducible batch,
+`run_scheduler=true` to complete deferred retries before measuring, and
+`explain=true` to make live NIM calls per event. Reasoning is advisory and does
+not change the metrics, so it is off by default.
 
-`POST /api/dashboard/run-batch` accepts `count` from 1 to 500. Use `seed=` for a reproducible synthetic batch, `run_scheduler=true` to complete deferred retries before measuring, and `explain=true` to make live NIM calls for each event. Batch AI recommendations and explanations are skipped by default because they are advisory and do not affect recovery metrics.
+`GET /api/dashboard/audit` pages with `?limit=&offset=` and filters with
+`?outcome=recovered`; the response carries `count` (this page) and `total`.
 
 ## Quick start
 
@@ -184,24 +125,15 @@ python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
 cp .env.example .env
+uvicorn app.main:app --reload --port 8000
 ```
 
-For a protected local API, add a development-only secret to `backend/.env`:
+For a protected local API, add to `backend/.env`:
 
 ```dotenv
 API_SECRET_KEY=local-dev-secret
 EXECUTOR_MODE=mock
 ```
-
-Start FastAPI:
-
-```bash
-uvicorn app.main:app --reload --port 8000
-```
-
-NIM is optional for the pipeline: without a reachable NIM API, AI recommendations and explanations become safe deterministic fallbacks. To use live recommendations and explanations, set `NIM_API_KEY` and ensure the model named by `NIM_MODEL` is available on the NIM catalog.
-
-The API key must be sent as `X-API-Key` on dashboard requests. For example:
 
 ```bash
 curl -s http://localhost:8000/health
@@ -211,84 +143,157 @@ curl -s -X POST http://localhost:8000/api/dashboard/golden-path \
 
 ### Frontend
 
-In a second terminal:
-
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
 
-Open the Vite URL shown in the terminal (normally `http://localhost:5173`). The frontend calls `http://localhost:8000` by default. Set `VITE_API_BASE` if the backend is hosted elsewhere.
+Open the Vite URL (normally `http://localhost:5173`). The frontend calls
+`http://localhost:8000` by default; set `VITE_API_BASE` to point elsewhere.
 
-The current frontend API client does not embed or send `API_SECRET_KEY`. To use the browser dashboard against the protected API, keep the key server-side and add the header at a trusted reverse proxy or other server-side boundary; do not put a production API secret in a public Vite bundle. Direct CLI/API requests should use the `curl` pattern above.
+If the API requires a key, set `VITE_API_KEY` to match. **This is not a
+secret** — Vite inlines env vars into the bundle at build time, so anyone who
+opens the page can read it. It deters casual traffic against a public demo
+host; it is not access control.
 
-## Demo and evaluation
+## Using real Razorpay
 
-Run the five safety/demo scenarios from `backend/`:
+A failed payment is terminal at Razorpay: there is no retry endpoint, and
+`capture` applies only to already-authorised payments. So every recovery is a
+*new* attempt, and the policy action decides which kind:
 
-```bash
-python verify_demo.py
+| Policy action | Razorpay call | Customer |
+| --- | --- | --- |
+| `scheduled_retry`, `immediate_retry` | `POST /orders` then `POST /payments/create/recurring` | absent |
+| reminder, switch method, reauth, resend auth | `POST /payment_links` with `notify` | present |
+
+```dotenv
+RAZORPAY_KEY_ID=rzp_test_xxxxxxxx
+RAZORPAY_KEY_SECRET=xxxxxxxx
+EXECUTOR_MODE=razorpay_test
 ```
 
-This covers a recoverable insufficient-funds event, retry-limit escalation, unknown-failure escalation, amount-cap escalation, and a simulated executor failure.
+The executor refuses any key id not starting with `rzp_test_`, and re-checks
+the amount cap before any request. Supply per-event identifiers through
+**Agent → Manual entry → Razorpay identifiers**: charging a mandate needs
+`customer_id`, `token_id`, `email` and `contact`; a payment link needs only an
+email *or* a phone. Without them the executor reports `not_attempted` rather
+than a declined payment — a gap in the integration must never look like a
+customer who refused.
 
-Generate the deterministic 80-event dataset (80% development, 20% held-out):
+Check the wiring with `GET /api/dashboard/razorpay-check`, which distinguishes
+missing credentials, a refused live key, rejected credentials, an unreachable
+API, and valid-but-still-simulated.
 
-```bash
-python -m app.ingestion.generator
-```
-
-Run evaluation against both datasets:
-
-```bash
-python evaluate.py
-```
-
-Evaluation reports are written to `backend/evaluation_results/` and include classification accuracy, automatic recoveries, escalations, execution failures, unknown/unsafe cases, and false automatic recoveries.
-
-### Evaluation integrity
-
-Classification is driven by the structured `error_code` — the same signal a real Razorpay integration receives — not by keyword-matching the event's free-text description. The generator keeps descriptions independent of the classifier's message rules, and the held-out slice is re-worded from a disjoint phrase pool, so held-out accuracy measures genuine generalization to unseen wording rather than the dataset echoing the classifier's own keywords back at it.
+For webhooks, set `RAZORPAY_WEBHOOK_SECRET` (a different value from
+`RAZORPAY_KEY_SECRET`) and point the dashboard at
+`POST /api/dashboard/webhook/razorpay`. Left empty, the endpoint refuses every
+request rather than trusting unsigned input.
 
 ## Tests
 
-Backend tests:
+```bash
+cd backend && python -m pytest -q
+cd ../frontend && npm test && npm run build
+npx playwright test          # contrast and layout, needs the dev server
+```
+
+**810 tests**, last verified locally on 2026-09-05:
+
+| Suite | Result |
+| --- | --- |
+| Backend (pytest) | **596 passed**, 2 deselected |
+| Frontend (vitest) | **200 passed** |
+| End-to-end (Playwright) | **14** — 13 pass standalone, all 14 with a backend running |
+| Production build | successful |
+
+One end-to-end test needs a live backend to render the data it measures, and
+skips rather than passing vacuously when there is none. Start the API first to
+run the full set.
+
+Coverage includes classification precedence, every policy and stopping rule,
+fail-closed behaviour, executor idempotency, scheduler behaviour, audit
+persistence and redaction, **audit chain tamper detection**, API validation and
+authentication, webhook signature verification, pipeline integration, dashboard
+rendering, and evaluation metrics.
+
+## Demo and evaluation
 
 ```bash
 cd backend
-python -m pytest -q
+python verify_demo.py                  # five safety scenarios
+python -m app.ingestion.generator      # deterministic dataset, 80/20 split
+python evaluate.py                     # evaluate both slices
 ```
 
-Frontend tests and production build:
+`verify_demo.py` covers a recoverable insufficient-funds event, retry-limit
+escalation, unknown-failure escalation, amount-cap escalation, and a simulated
+executor failure. Reports land in `backend/evaluation_results/`.
 
-```bash
-cd frontend
-npm test
-npm run build
-```
+**Evaluation integrity.** Classification is driven by the structured
+`error_code` — the signal a real Razorpay integration receives — not by
+keyword-matching free text. The generator keeps descriptions independent of the
+classifier's rules, and the held-out slice is re-worded from a disjoint phrase
+pool, so held-out accuracy measures generalisation rather than the dataset
+echoing the classifier back at itself.
 
-The test suite covers classification and precedence, every policy rule and stopping rule, fail-closed behavior, reasoning fallbacks and policy isolation, executor idempotency, scheduler behavior, audit persistence/redaction, API validation and authentication, pipeline integration, dashboard rendering, evaluation metrics, and security hardening.
+## Configuration
 
-## Verification
+Copy `backend/.env.example` to `backend/.env`. It documents every setting;
+the ones that change behaviour most:
 
-Last verified locally on 2026-09-04:
+| Variable | Effect |
+| --- | --- |
+| `EXECUTOR_MODE` | `mock` (default, offline) or `razorpay_test` |
+| `AUTO_RECOVERY_AMOUNT_LIMIT` | Paise. Above this, escalate — never auto-retry. Default `500000` (₹5,000) |
+| `MODEL_ACTION_CHOICE_MIN_CONFIDENCE` | How sure the advisor must be to beat the policy default. Default `0.7`; raise toward 1.0 for pure deterministic policy |
+| `API_SECRET_KEY` | When set, every dashboard route requires `X-API-Key` |
+| `CORS_ALLOW_ORIGINS` | Exact origins, comma-separated, never a wildcard |
+| `NIM_API_KEY` | Optional; without it, reasoning uses the deterministic fallback |
+| `RAZORPAY_WEBHOOK_SECRET` | Required for webhook ingestion; empty means refuse everything |
 
-- Backend: 453 tests passed; 2 deselected
-- Frontend: 112 tests passed
-- Production build: successful
-- `git diff --check`: clean
+Do not commit `.env` files or credentials. The audit logger recursively redacts
+credential-like fields before persistence.
 
-Run the checks again from a clean checkout with:
+## Deployment
 
-```bash
-cd backend
-python -m pytest -q
+The frontend and API deploy separately, deliberately.
 
-cd ../frontend
-npm test
-npm run build
-```
+**Frontend → Vercel.** New Project → import the repo → set **Root Directory**
+to `frontend`; `frontend/vercel.json` supplies the rest. Add `VITE_API_BASE`
+(no trailing slash) and `VITE_API_KEY` **before** building — Vite inlines them
+at build time, so changing them later does nothing without a redeploy.
+
+**API → a host with a persistent disk**, *not* Vercel serverless. The audit log
+and idempotency ledger are SQLite files. Serverless filesystems are ephemeral
+and unshared between concurrent invocations, so the append-only trail would be
+lost on every cold start and the same payment could be retried twice — the two
+guarantees this system is built on.
+
+`backend/Dockerfile` and `backend/render.yaml` deploy to Render's free tier with
+a 1 GB disk at `/data`:
+
+1. New → Blueprint → point at `backend/render.yaml`
+2. Set `NIM_API_KEY` and `API_SECRET_KEY`
+3. Set `CORS_ALLOW_ORIGINS` to your Vercel URL
+
+Each Vercel preview deployment is a **separate origin** and will fail CORS
+unless added. Render's free tier also cold-starts in ~20s after idling, which
+exceeds the frontend's default request timeout — warm it before demoing.
+
+| Where | Variable | Purpose |
+| --- | --- | --- |
+| Vercel | `VITE_API_BASE` | Deployed API origin, no trailing slash |
+| Vercel | `VITE_API_KEY` | Must match `API_SECRET_KEY`; public, not a secret |
+| API | `DATABASE_URL` | `sqlite:////data/recovery.db` on the mounted disk |
+| API | `CORS_ALLOW_ORIGINS` | Comma-separated allowlist |
+| API | `API_SECRET_KEY` | Protects every dashboard route |
+| API | `NIM_API_KEY` | Optional |
+
+Any host running a container with a mounted volume works the same way. For true
+serverless, `app/audit/store.py` and `app/persistence/store.py` are raw
+`sqlite3` and would need porting to Postgres first.
 
 ## Project structure
 
@@ -296,20 +301,21 @@ npm run build
 .
 ├── backend/
 │   ├── app/
-│   │   ├── audit/          # append-only SQLite audit store
+│   │   ├── audit/          # append-only, hash-chained audit store
 │   │   ├── auth.py         # API-key protection for dashboard routes
 │   │   ├── classifier/     # deterministic failure taxonomy
-│   │   ├── escalation/     # human-review/fail-closed handling
+│   │   ├── escalation/     # human-review / fail-closed handling
 │   │   ├── evaluation/     # synthetic and held-out evaluation
 │   │   ├── executor/       # executor contract and simulated executor
-│   │   ├── ingestion/      # event generator and loader
+│   │   ├── ingestion/      # seeded event generator
 │   │   ├── models/         # Pydantic payment-event schema
-│   │   ├── persistence/    # durable retry/idempotency state
-│   │   ├── pipeline/       # end-to-end orchestration
+│   │   ├── outreach/       # customer contact dispatch
+│   │   ├── persistence/    # durable retry / idempotency state
+│   │   ├── pipeline/       # end-to-end orchestration and bounded gates
 │   │   ├── policy/         # authoritative bounded policy engine
-│   │   ├── razorpay/       # opt-in Razorpay test-mode adapter
-│   │   ├── recommendation/ # Nemotron/NIM risk advisor and fallback
-│   │   ├── reasoning/      # Nemotron/NIM explainer and fallback
+│   │   ├── razorpay/       # sandbox executor, webhook, credential check
+│   │   ├── recommendation/ # Nemotron advisor and fallback
+│   │   ├── reasoning/      # Nemotron explainer and fallback
 │   │   ├── scheduler/      # deferred retry worker
 │   │   ├── dashboard.py    # FastAPI dashboard endpoints
 │   │   └── main.py         # FastAPI application
@@ -319,84 +325,20 @@ npm run build
 ├── data/
 │   ├── synthetic/          # development dataset
 │   └── held_out/           # held-out evaluation slice
+├── docs/
+│   ├── PITCH.md
+│   └── ARCHITECTURE.md
 └── frontend/
+    ├── e2e/                # contrast and layout regression
     └── src/                # React dashboard and API client
 ```
 
-## Deployment
-
-The frontend and the API deploy separately, and that split is deliberate.
-
-**Frontend → Vercel.** It is a static Vite build, which is exactly what
-Vercel is for.
-
-1. New Project → import the repo → set **Root Directory** to `frontend`.
-   `frontend/vercel.json` supplies the rest.
-2. Add `VITE_API_BASE` pointing at the deployed API (no trailing slash). It
-   is baked in at build time, so redeploy after changing it.
-
-**API → a host with a persistent disk**, *not* Vercel serverless. The audit
-log and the idempotency ledger are SQLite files. Serverless filesystems are
-ephemeral and are not shared between concurrent invocations, so on Vercel
-the append-only audit trail would be lost on every cold start and the same
-payment could be retried twice — the two guarantees this system is built
-on. `backend/Dockerfile` and `backend/render.yaml` deploy it to Render's
-free tier with a 1 GB disk mounted at `/data`:
-
-1. New → Blueprint → point at `backend/render.yaml`.
-2. Set `NIM_API_KEY` (leave unset to run on the deterministic fallback).
-3. Set `CORS_ALLOW_ORIGINS` to your Vercel URL, comma-separated for more
-   than one.
-
-Then set `VITE_API_BASE` on Vercel to the Render URL and redeploy.
-
-Any host that runs a container with a mounted volume works the same way —
-Railway, Fly.io, or a plain VM. If you later want true serverless, the
-storage layer (`app/audit/store.py`, `app/persistence/store.py`) is raw
-`sqlite3` and would need porting to Postgres first.
-
-### Deployment environment variables
-
-| Where | Variable | Purpose |
-| --- | --- | --- |
-| Vercel | `VITE_API_BASE` | Deployed API origin, no trailing slash |
-| API | `DATABASE_URL` | `sqlite:////data/recovery.db` on the mounted disk |
-| API | `CORS_ALLOW_ORIGINS` | Comma-separated allowlist; never a wildcard |
-| API | `NIM_API_KEY` | Optional; without it reasoning uses the fallback |
-| API | `NIM_MODEL` | Defaults to the Nemotron model |
-
-## Configuration
-
-Copy `backend/.env.example` to `backend/.env` and adjust as needed:
-
-```dotenv
-RAZORPAY_KEY_ID=
-RAZORPAY_KEY_SECRET=
-NIM_API_KEY=
-NIM_BASE_URL=https://integrate.api.nvidia.com/v1
-NIM_MODEL=nvidia/nemotron-3-nano-omni-30b-a3b-reasoning
-DATABASE_URL=sqlite:///./recovery.db
-AUTO_RECOVERY_AMOUNT_LIMIT=500000
-EXECUTOR_MODE=mock
-ENVIRONMENT=development
-API_SECRET_KEY=local-dev-secret
-CORS_ALLOW_ORIGINS=http://localhost:5173,http://localhost:3000
-```
-
-`EXECUTOR_MODE=mock` keeps the demo offline. Use `razorpay_test` only with test credentials; the adapter refuses key IDs that do not begin with `rzp_test_`. `API_SECRET_KEY` protects all dashboard routes and must be sent as `X-API-Key`.
-
-Do not commit `.env` files, Razorpay credentials, or model/API tokens. The audit logger recursively redacts credential-like fields before persistence.
-
 ## Design boundary
 
-The project intentionally keeps authorization deterministic:
+The policy engine is the sole authority on whether money moves. The model has
+exactly one bounded power: where policy authorises more than one action, the
+advisor may pick among them — if its confidence clears the threshold. It can
+never add an action, raise a limit, or overturn a refusal.
 
-1. `RecoveryRecommender` detects risk and suggests a cause/action candidate; it has no recovery authority.
-2. `FailureClassifier` independently identifies the failure category.
-3. `RecoveryPolicyEngine` decides whether an action is allowed and which bounds apply, accepting or constraining the candidate.
-4. `RecoveryReasoner` explains the final decision; it cannot modify it.
-5. `RecoveryExecutor` performs only an authorized action and returns a structured result.
-6. `EscalationHandler` routes denied/failed/unsafe cases without authorizing recovery.
-7. `AuditLogger` appends the complete outcome for inspection.
-
-This boundary is the core safety property of the recovery agent.
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) sets out each safety property and
+the mechanism that enforces it.

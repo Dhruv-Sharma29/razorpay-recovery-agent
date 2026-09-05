@@ -8,6 +8,7 @@
 import AbPanel from "../components/AbPanel";
 import AgentLearning from "../components/AgentLearning";
 import ManualEntry from "../components/ManualEntry";
+import RazorpayStatus from "../components/RazorpayStatus";
 import PipelineStages from "../components/PipelineStages";
 import StatusBadge from "../components/StatusBadge";
 import type {
@@ -15,6 +16,7 @@ import type {
   DashboardResult,
   LearnedOutcomes,
   PaymentEventPayload,
+  RazorpayStatus as RazorpayStatusType,
 } from "../types/dashboard";
 import { formatRupees } from "../utils/format";
 
@@ -40,6 +42,10 @@ interface AgentProps {
   abRunning?: boolean;
   abError?: string | null;
   onRunAb?: () => void;
+  /** Whether recoveries would actually reach Razorpay. */
+  razorpay?: RazorpayStatusType | null;
+  razorpayChecking?: boolean;
+  onRecheckRazorpay?: () => void;
 }
 
 export default function Agent({
@@ -54,6 +60,9 @@ export default function Agent({
   abRunning = false,
   abError = null,
   onRunAb,
+  razorpay = null,
+  razorpayChecking = false,
+  onRecheckRazorpay,
 }: AgentProps) {
   const isFallback = result?.reasoning_is_fallback ?? null;
 
@@ -80,6 +89,13 @@ export default function Agent({
             error={abError}
             onRun={onRunAb}
           />
+          {onRecheckRazorpay && (
+            <RazorpayStatus
+              status={razorpay}
+              checking={razorpayChecking}
+              onRecheck={onRecheckRazorpay}
+            />
+          )}
         </div>
       )}
 

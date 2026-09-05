@@ -125,6 +125,17 @@ export default function AbPanel({
             </tbody>
           </table>
 
+          {/* The ceiling on what any advisor could have changed. Shown either
+              way, so a small delta is read against its opportunity. */}
+          {result.advisor && (
+            <p className="ab__note" data-testid="ab-opportunity">
+              {result.advisor.events_with_alternatives} of{" "}
+              {result.count_per_arm} events offered more than one permitted
+              action. Everywhere else policy authorised exactly one, so there
+              was nothing to decide.
+            </p>
+          )}
+
           {/* An inconclusive run must never be presented as a result. */}
           {!result.conclusive ? (
             <p className="ab__note ab__note--warn" data-testid="ab-inconclusive">

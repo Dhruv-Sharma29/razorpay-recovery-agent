@@ -282,6 +282,75 @@ class AuditLogger:
             record=record,
         )
 
+    def verify_chain(self) -> dict[str, Any]:
+        """Recompute every hash and confirm the chain still holds.
+
+        Storing a chain is not the same as being able to prove it. This walks
+        the log in insertion order, recomputes each record's hash from the
+        previous hash plus the stored payload, and reports the first record
+        that does not match.
+
+        Detects an edited payload, a deleted row, and a reordered one — the
+        three ways a log gets quietly rewritten. Read-only.
+        """
+        sql = (
+            "SELECT rowid, audit_id, payload, previous_hash, record_hash "
+            "FROM audit_log ORDER BY rowid"
+        )
+        try:
+            rows = self._connection.execute(sql).fetchall()
+        except sqlite3.Error as exc:  # noqa: BLE001
+            logger.warning("Audit chain verification failed: %s", exc)
+            return {
+                "valid": False,
+                "records_checked": 0,
+                "broken_at": None,
+                "reason": f"Could not read the audit log: {exc}",
+            }
+
+        expected_previous: str | None = None
+        for index, (_rowid, audit_id, payload, previous_hash, record_hash) in enumerate(
+            rows
+        ):
+            # A record must name the hash that actually precedes it. This is
+            # what a deletion or a reordering breaks.
+            if previous_hash != expected_previous:
+                return {
+                    "valid": False,
+                    "records_checked": index,
+                    "broken_at": audit_id,
+                    "reason": (
+                        "Record does not follow the one before it — a row has "
+                        "been deleted, inserted, or reordered."
+                    ),
+                }
+
+            hasher = hashlib.sha256()
+            if previous_hash:
+                hasher.update(previous_hash.encode("utf-8"))
+            hasher.update(payload.encode("utf-8"))
+            if hasher.hexdigest() != record_hash:
+                return {
+                    "valid": False,
+                    "records_checked": index,
+                    "broken_at": audit_id,
+                    "reason": (
+                        "Stored hash does not match the payload — this "
+                        "record has been edited since it was written."
+                    ),
+                }
+            expected_previous = record_hash
+
+        return {
+            "valid": True,
+            "records_checked": len(rows),
+            "broken_at": None,
+            "reason": (
+                f"All {len(rows)} records hash to their stored values and "
+                "link to the record before them."
+            ),
+        }
+
     def outcome_stats(self, min_observations: int = 1) -> list[dict[str, Any]]:
         """What has actually worked, per failure cause and action.
 
