@@ -111,6 +111,20 @@ describe("AbPanel", () => {
     expect(onRun).toHaveBeenCalledTimes(1);
   });
 
+  it("shows the actual comparison error", () => {
+    render(
+      <AbPanel
+        result={null}
+        running={false}
+        error="The backend returned an invalid response."
+        onRun={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "The backend returned an invalid response.",
+    );
+  });
+
   it("reports a negative result as a negative result", () => {
     render(
       <AbPanel result={abResult()} running={false} error={null} onRun={vi.fn()} />,

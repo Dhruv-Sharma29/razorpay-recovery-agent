@@ -74,7 +74,7 @@ export default function AbPanel({
 
       {error && (
         <div className="banner banner--error ab__error" role="alert">
-          <strong>Comparison failed.</strong> Batch timed out. Try a smaller count.
+          <strong>Comparison failed.</strong> {error}
         </div>
       )}
 

@@ -6,9 +6,9 @@
 ![fastapi](https://img.shields.io/badge/API-FastAPI-009688?logo=fastapi&logoColor=white)
 ![react](https://img.shields.io/badge/frontend-React%2019-149eca?logo=react&logoColor=white)
 ![executor](https://img.shields.io/badge/default%20executor-simulated-lightgrey)
-![tests](https://img.shields.io/badge/tests-851%20passing-1c8a5e)
+![tests](https://img.shields.io/badge/tests-852%20passing-1c8a5e)
 ![backend](https://img.shields.io/badge/backend-651-1c8a5e)
-![frontend](https://img.shields.io/badge/frontend-200-1c8a5e)
+![frontend](https://img.shields.io/badge/frontend-201-1c8a5e)
 ![e2e](https://img.shields.io/badge/end--to--end-14-1c8a5e)
 
 Reflow detects revenue at risk, decides what to do about it, and — crucially —
@@ -199,12 +199,12 @@ cd ../frontend && npm test && npm run build
 npx playwright test          # contrast and layout, needs the dev server
 ```
 
-**851 tests**, last verified locally on 2026-09-05:
+**852 tests**, last verified locally on 2026-09-05:
 
 | Suite | Result |
 | --- | --- |
 | Backend (pytest) | **651 passed**, 2 deselected |
-| Frontend (vitest) | **200 passed** |
+| Frontend (vitest) | **201 passed** |
 | End-to-end (Playwright) | **14** — 13 pass standalone, all 14 with a backend running |
 | Production build | successful |
 

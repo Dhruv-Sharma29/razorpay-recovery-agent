@@ -126,7 +126,7 @@ there is no subscription-specific policy rule yet.
 | Stopping rules | Amount cap, per-cause retry limits, a global attempt cap, cooldowns — and the cost avoided is quantified |
 | Audit trail | Append-only and **hash-chained**: each record carries the previous record's hash |
 
-**587 backend tests, 200 frontend, 14 end-to-end** including WCAG AA contrast
+**651 backend tests, 201 frontend, 14 end-to-end** including WCAG AA contrast
 checks in both themes.
 
 ---
