@@ -16,3 +16,19 @@ def patched_init(self, *args, **kwargs):
     self.headers["X-API-Key"] = "test-key"
 
 TestClient.__init__ = patched_init
+
+
+@pytest.fixture(autouse=True)
+def _isolate_recommendation_cache():
+    """Give every test a cold advisory cache.
+
+    The cache is deliberately shared across recommender instances in
+    production — that is what lets both A/B arms reason from identical advice.
+    In a test suite the same sharing means one test's mocked success is served
+    to the next test's mocked failure, so each test starts clean.
+    """
+    from app.recommendation.engine import _SHARED_CACHE
+
+    _SHARED_CACHE.clear()
+    yield
+    _SHARED_CACHE.clear()

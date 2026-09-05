@@ -21,6 +21,7 @@ class FailureCategory(str, Enum):
     BANK_DECLINE = "bank_decline"
     AUTHENTICATION_FAILURE = "authentication_failure"
     OVERDUE_RECEIVABLE = "overdue_receivable"
+    CHECKOUT_ABANDONED = "checkout_abandoned"
     UNKNOWN = "unknown"
 
 

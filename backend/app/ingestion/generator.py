@@ -99,6 +99,16 @@ _FAILURE_TEMPLATES: list[dict[str, Any]] = [
         "weight": 15,
         "payment_methods": [PaymentMethod.CARD, PaymentMethod.NETBANKING],
     },
+    # --- Checkout Abandoned (~12%) ---
+    # Never a gateway failure: the customer left before paying, so there is
+    # no decline to classify and nothing to retry. These arrive from the
+    # merchant's own checkout telemetry, not from a payment webhook.
+    {
+        "category": FailureCategory.CHECKOUT_ABANDONED,
+        "error_codes": ["CHECKOUT_ABANDONED", "CART_ABANDONED", "PAYMENT_NOT_INITIATED"],
+        "weight": 12,
+        "payment_methods": [PaymentMethod.CARD, PaymentMethod.UPI, PaymentMethod.NETBANKING],
+    },
     # --- Overdue Receivable (~10%) ---
     # B2B invoices that were never a gateway failure at all: the money is
     # simply late. Included because a batch that only contains gateway errors
@@ -149,6 +159,11 @@ _DEV_DESCRIPTIONS: dict[FailureCategory, list[str]] = {
         "Charge blocked by the card-issuing institution",
         "Authorization was not granted by the issuer",
     ],
+    FailureCategory.CHECKOUT_ABANDONED: [
+        "Customer left the checkout before completing payment",
+        "Session ended with the basket unpaid",
+        "Payment was never initiated for this order",
+    ],
     FailureCategory.OVERDUE_RECEIVABLE: [
         "Invoice is past its due date and remains unpaid",
         "Payment for this invoice is overdue",
@@ -171,6 +186,11 @@ _DEV_DESCRIPTIONS: dict[FailureCategory, list[str]] = {
 # Held-out descriptions: a disjoint phrase pool. The held-out slice is re-worded
 # from this at write time so its prose never appears in the development set.
 _HELD_OUT_DESCRIPTIONS: dict[FailureCategory, list[str]] = {
+    FailureCategory.CHECKOUT_ABANDONED: [
+        "Basket was left without the customer reaching payment",
+        "Shopper exited the flow before any charge was raised",
+        "Order created but the customer never attempted to pay",
+    ],
     FailureCategory.OVERDUE_RECEIVABLE: [
         "Settlement for this invoice has not arrived by the agreed date",
         "Amount remains outstanding well past the payment terms",

@@ -140,6 +140,21 @@ _CATEGORY_POLICIES: dict[FailureCategory, _CategoryPolicy] = {
             "(attempt {attempt}/{max_retries})"
         ),
     ),
+    FailureCategory.CHECKOUT_ABANDONED: _CategoryPolicy(
+        category=FailureCategory.CHECKOUT_ABANDONED,
+        action=PolicyAction.SEND_CHECKOUT_LINK,
+        # Nothing was declined, so there is nothing to retry: the only lever
+        # is asking the customer to come back. Two nudges, an hour apart —
+        # a basket goes cold quickly, and a third message is harassment.
+        max_retries=2,
+        cooldown_seconds=3_600,
+        rule_id="policy.checkout_abandoned.nudge_1h",
+        reason_template=(
+            "Checkout abandoned: send the customer a link to finish paying "
+            "(attempt {attempt}/{max_retries})"
+        ),
+        alternatives=(PolicyAction.SEND_PAYMENT_REMINDER,),
+    ),
     FailureCategory.OVERDUE_RECEIVABLE: _CategoryPolicy(
         category=FailureCategory.OVERDUE_RECEIVABLE,
         action=PolicyAction.SEND_PAYMENT_REMINDER,

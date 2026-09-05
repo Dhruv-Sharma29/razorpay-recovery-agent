@@ -74,6 +74,7 @@ _EXECUTABLE_ACTIONS: frozenset[PolicyAction] = frozenset(
         PolicyAction.SWITCH_PAYMENT_METHOD,
         PolicyAction.RESEND_AUTH_PROMPT,
         PolicyAction.SEND_PAYMENT_REMINDER,
+        PolicyAction.SEND_CHECKOUT_LINK,
     }
 )
 

@@ -85,10 +85,15 @@ class TestAbEndpoint:
             r["treatment"]["recovered_amount"] - r["control"]["recovered_amount"]
         )
 
-    def test_a_run_with_no_advisor_choices_is_reported_inconclusive(self):
-        """Without a live model both arms are identical by construction."""
+    def test_a_run_that_could_not_compare_is_reported_inconclusive(self):
+        """No model answers and no alternatives means nothing was measured.
+
+        Distinct from a model that answered and agreed — that is a finding,
+        and the endpoint reports it as conclusive.
+        """
         r = client.post("/api/dashboard/run-ab", params={"count": 8, "seed": 5}).json()
-        if r["treatment"]["actions_chosen_by_model"] == 0:
+        advisor = r["advisor"]
+        if not (advisor["model_answers"] and advisor["events_with_alternatives"]):
             assert r["conclusive"] is False
             # The note must name the actual constraint. At this batch size the
             # cause is a lack of alternatives, not a missing key — asserting
@@ -324,3 +329,77 @@ class TestArmsAreIsolated:
             first["control"]["recovered_amount"]
             == second["control"]["recovered_amount"]
         )
+
+
+class TestRestraintIsPriced:
+    """A count nobody can weigh becomes a figure comparable to revenue.
+
+    The cost model is stated, not measured — the same standing as the capture
+    rates — and the response says so, because a made-up number presented as
+    measured is worse than no number.
+    """
+
+    def test_the_batch_prices_what_it_declined_to_do(self) -> None:
+        body = client.post(
+            "/api/dashboard/run-batch", params={"count": 100, "seed": 11}
+        ).json()
+        r = body["restraint"]
+        assert r["cost_avoided"] >= 0
+        assert sum(r["cost_breakdown"].values()) == r["cost_avoided"]
+
+    def test_the_model_is_declared_as_stated_not_measured(self) -> None:
+        body = client.post(
+            "/api/dashboard/run-batch", params={"count": 40, "seed": 7}
+        ).json()
+        assert body["restraint"]["cost_model"]["stated_not_measured"] is True
+
+    def test_a_double_charge_costs_more_than_the_retry_causing_it(self) -> None:
+        """A dispute a human must handle dwarfs the processing fee."""
+        body = client.post(
+            "/api/dashboard/run-batch", params={"count": 40, "seed": 7}
+        ).json()
+        model = body["restraint"]["cost_model"]
+        assert model["per_double_charge_risk"] > model["per_customer_friction"]
+        assert model["per_customer_friction"] > model["per_issuer_attempt"]
+
+    def test_refusing_nothing_costs_nothing(self) -> None:
+        from app.dashboard import _restraint_cost
+
+        zero = {
+            "extra_attempts": 0,
+            "attempts_past_retry_cap": 0,
+            "blind_retries_on_unknown_cause": 0,
+            "non_retryable_retried": 0,
+        }
+        assert _restraint_cost(zero)["cost_avoided"] == 0
+
+
+class TestAgreementIsAFinding:
+    """A model that answers, has real choices, and picks what policy picked
+    has told you something. Calling that "inconclusive" discards it."""
+
+    def test_agreement_across_real_choices_is_conclusive(self) -> None:
+        from app.dashboard import _ab_note
+
+        advisor = {
+            "events_with_alternatives": 6,
+            "model_answers": 66,
+            "proposed_change": 0,
+            "blocked_by_confidence": 0,
+            "applied": 0,
+        }
+        note = _ab_note(0, 100, advisor)
+        assert "agreed with policy" in note
+        assert "not a failure" in note
+
+    def test_no_answers_is_still_inconclusive(self) -> None:
+        from app.dashboard import _ab_note
+
+        advisor = {
+            "events_with_alternatives": 6,
+            "model_answers": 0,
+            "proposed_change": 0,
+            "blocked_by_confidence": 0,
+            "applied": 0,
+        }
+        assert "NIM_API_KEY" in _ab_note(0, 100, advisor)
