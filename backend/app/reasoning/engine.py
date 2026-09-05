@@ -27,6 +27,8 @@ from typing import Any
 
 import httpx
 
+from app.nim_retry import with_retries
+
 from app.classifier.result import ClassificationResult
 from app.config import settings
 from app.models.payment_event import FailedTransactionEvent
@@ -38,7 +40,7 @@ logger = logging.getLogger(__name__)
 
 # Default timeout for NIM HTTP calls (seconds). Kept short so a slow or
 # unreachable NIM endpoint fails over to the deterministic fallback quickly.
-_DEFAULT_TIMEOUT = 15.0
+_DEFAULT_TIMEOUT = 30.0
 
 _PROMPT_VERSION = "1.0.0"
 _SCHEMA_VERSION = "1.0.0"
@@ -469,12 +471,17 @@ class RecoveryReasoner:
         try:
             import time
             start_time = time.perf_counter()
-            response = self._client.post(
-                f"{self._base_url}/chat/completions",
-                headers=headers,
-                json=payload,
-            )
-            response.raise_for_status()
+            def _send() -> httpx.Response:
+                sent = self._client.post(
+                    f"{self._base_url}/chat/completions",
+                    headers=headers,
+                    json=payload,
+                )
+                # Raise inside the retry so a 503 is retried, not returned.
+                sent.raise_for_status()
+                return sent
+
+            response = with_retries(_send, label="NIM reasoning")
             latency_ms = int((time.perf_counter() - start_time) * 1000)
             raw_body = response.json()
         except httpx.TimeoutException:

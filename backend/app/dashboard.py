@@ -42,6 +42,7 @@ from app.outreach import SimulatedOutreachDispatcher
 from app.persistence.store import RecoveryStateStore
 from app.scheduler import run_due_jobs
 from app.pipeline.engine import RecoveryPipeline
+from app.razorpay.health import check_credentials
 from app.razorpay.webhook import (
     WebhookRejected,
     parse_failed_payment,
@@ -134,6 +135,30 @@ _control_pipeline = RecoveryPipeline(
     recommender=RecoveryRecommender(),
     allow_model_action_choice=False,
 )
+
+def _arm_pipeline(
+    state_store: RecoveryStateStore, *, allow_model_action_choice: bool
+) -> RecoveryPipeline:
+    """One arm of the A/B, bound to its own isolated state.
+
+    Everything is shared with the live pipeline except the store and the one
+    variable under test, so a difference between arms can only come from that
+    variable. The audit logger is shared deliberately: the run should still be
+    recorded, and audit writes cannot affect a recovery outcome.
+    """
+    return RecoveryPipeline(
+        classifier=FailureClassifier(),
+        policy_engine=RecoveryPolicyEngine(),
+        recommender=RecoveryRecommender(),
+        reasoner=RecoveryReasoner(),
+        executor=_make_executor(state_store=state_store),
+        escalation_handler=EscalationHandler(),
+        audit_logger=_audit_logger,
+        state_store=state_store,
+        outreach=SimulatedOutreachDispatcher(),
+        allow_model_action_choice=allow_model_action_choice,
+    )
+
 
 # Worker pipeline: deliberately has NO state store, so a due job actually
 # executes instead of rescheduling itself.
@@ -756,6 +781,7 @@ def _execute_batch(
     explain: bool,
     pipeline: RecoveryPipeline,
     on_event: Callable[[dict[str, Any]], None] | None = None,
+    state_store: RecoveryStateStore | None = None,
 ) -> dict[str, Any]:
     """Run one batch through the given pipeline and summarise it.
 
@@ -810,6 +836,16 @@ def _execute_batch(
         "blind_retries_on_unknown_cause": 0,
         "non_retryable_retried": 0,
     }
+    # Why the advisor did or did not influence this run. Without these the
+    # only available explanation is "no choices were made", which blames the
+    # model for what is usually a lack of opportunity.
+    advisor = {
+        "events_with_alternatives": 0,
+        "model_answers": 0,
+        "proposed_change": 0,
+        "blocked_by_confidence": 0,
+        "applied": 0,
+    }
     audit_ids: list[str] = []
     outcomes: dict[str, int] = {}
     funnel = {"raw": 0, "needed_signal": 0, "contacted": 0, "confirmed_recovered": 0}
@@ -843,6 +879,30 @@ def _execute_batch(
             continue
 
         decision = result.policy_decision
+        if decision is not None:
+            permitted = decision.permitted_actions or []
+            # The ceiling on what any advisor could change. One permitted
+            # action means there was nothing to decide.
+            if len(permitted) > 1:
+                advisor["events_with_alternatives"] += 1
+            rec = result.recommendation
+            if rec is not None and rec.success:
+                advisor["model_answers"] += 1
+            if result.action_source == "model":
+                advisor["applied"] += 1
+            elif (
+                rec is not None
+                and rec.suggested_action is not None
+                and rec.suggested_action in permitted
+                and rec.suggested_action != decision.action
+                and decision.automatic_recovery_allowed
+            ):
+                # action_source is "policy", so decision.action is still the
+                # default: the advisor wanted a change and did not get it.
+                advisor["proposed_change"] += 1
+                if rec.confidence < settings.model_action_choice_min_confidence:
+                    advisor["blocked_by_confidence"] += 1
+
         if decision is not None and not decision.automatic_recovery_allowed:
             # Naive would have retried this anyway.
             naive["extra_attempts"] += 1
@@ -977,7 +1037,14 @@ def _execute_batch(
     if run_scheduler:
         # Far enough ahead that every cooldown in this batch has elapsed.
         horizon = datetime.now(timezone.utc) + timedelta(days=365)
-        report = run_due_jobs(_state_store, _worker_pipeline, now=horizon)
+        # Whichever store this run owns. The A/B supplies an isolated one:
+        # sweeping the shared queue would hand one arm every deferred retry
+        # left by an earlier batch and call it that arm's recovery.
+        report = run_due_jobs(
+            state_store if state_store is not None else _state_store,
+            _worker_pipeline,
+            now=horizon,
+        )
         scheduler_summary = report.as_dict()
         recovered_amount += report.amount_recovered
         recovery_delays.extend(report.delays_seconds)
@@ -1032,6 +1099,7 @@ def _execute_batch(
             {"scenario": name, **values} for name, values in sorted(by_category.items())
         ],
         "timing": _timing_summary(recovery_delays),
+        "advisor": advisor,
         "restraint": {
             **naive,
             "note": (
@@ -1135,6 +1203,19 @@ async def razorpay_webhook(request: Request) -> dict[str, Any]:
         ),
         "audit_id": getattr(result.audit_write, "audit_id", None),
     }
+
+
+@router.get("/razorpay-check")
+def razorpay_check() -> dict[str, Any]:
+    """Would a real recovery call reach Razorpay right now?
+
+    Makes one authenticated, read-only request that creates nothing. Answers
+    the question that bad credentials, no network, and a correctly-refused
+    missing mandate would otherwise all answer the same way.
+
+    Never returns the secret — only whether one is set, and a masked key id.
+    """
+    return check_credentials()
 
 
 @router.get("/learned")
@@ -1276,8 +1357,33 @@ def run_ab(
     Both arms use live reasoning; the only difference between them is who
     chose the action.
     """
-    control = _execute_batch(count, seed, True, True, _control_pipeline)
-    treatment = _execute_batch(count, seed, True, True, _pipeline)
+    # Each arm gets its own throwaway state. An A/B is only a comparison if
+    # the arms are independent: sharing the live store let whichever ran first
+    # sweep every deferred retry pending from earlier batches and book the
+    # money as its own, which produced differences the advisor never caused —
+    # including recovery rates above 100%.
+    control_store = RecoveryStateStore(database_url="sqlite:///:memory:")
+    treatment_store = RecoveryStateStore(database_url="sqlite:///:memory:")
+    try:
+        control = _execute_batch(
+            count,
+            seed,
+            True,
+            True,
+            _arm_pipeline(control_store, allow_model_action_choice=False),
+            state_store=control_store,
+        )
+        treatment = _execute_batch(
+            count,
+            seed,
+            True,
+            True,
+            _arm_pipeline(treatment_store, allow_model_action_choice=True),
+            state_store=treatment_store,
+        )
+    finally:
+        control_store.close()
+        treatment_store.close()
 
     def _median(arm: dict[str, Any]) -> int | None:
         return arm["timing"]["median_seconds"]
@@ -1310,18 +1416,57 @@ def run_ab(
                 else _median(treatment) - _median(control)
             ),
         },
-        # Without a live model the advisor has nothing to suggest, so both
-        # arms are identical by construction. Say so rather than presenting
-        # a null result as evidence.
+        # A null result must never be presented as evidence.
         "conclusive": bool(choices),
-        "note": (
-            "The advisor changed the action on "
-            f"{choices} of {count} events."
-            if choices
-            else "The advisor made no action choices in this run, so the arms "
-            "are identical. Configure NIM_API_KEY for a live comparison."
-        ),
+        "advisor": treatment["advisor"],
+        "note": _ab_note(choices, count, treatment["advisor"]),
     }
+
+
+def _ab_note(choices: int, count: int, advisor: dict[str, Any]) -> str:
+    """Explain the result, and when there is none, explain why.
+
+    "The advisor made no action choices" is true but useless: it reads as a
+    missing API key when the usual cause is that policy authorised exactly one
+    action, leaving nothing to choose. Each branch below names the actual
+    constraint so the reader knows what to change.
+    """
+    opportunities = advisor["events_with_alternatives"]
+
+    if choices:
+        return (
+            f"The advisor changed the action on {choices} of {count} events "
+            f"({opportunities} offered more than one permitted action)."
+        )
+
+    if opportunities == 0:
+        return (
+            f"Policy authorised exactly one action for all {count} events, so "
+            "there was nothing for the advisor to choose. This is a property "
+            "of the batch, not a missing model — a comparison needs causes "
+            "with alternatives, such as bank declines or network errors."
+        )
+
+    if advisor["model_answers"] == 0:
+        return (
+            f"{opportunities} of {count} events offered a real choice, but no "
+            "live model answers were available, so both arms used the policy "
+            "default. Set NIM_API_KEY to compare."
+        )
+
+    if advisor["blocked_by_confidence"]:
+        return (
+            f"The advisor proposed a change on {advisor['proposed_change']} "
+            f"events but {advisor['blocked_by_confidence']} fell below the "
+            "confidence threshold, so policy's default stood. Lower "
+            "MODEL_ACTION_CHOICE_MIN_CONFIDENCE to admit them."
+        )
+
+    return (
+        f"The advisor answered on {advisor['model_answers']} events and agreed "
+        f"with policy every time, across {opportunities} that offered a real "
+        "choice. Agreement is a result, not a failure."
+    )
 
 
 @router.post("/reset")

@@ -15,6 +15,7 @@ import {
   processPayment,
   resetState,
   fetchLearned,
+  fetchRazorpayStatus,
   runAb,
   runBatch,
   streamBatch,
@@ -28,6 +29,7 @@ import type {
   AbResult,
   BatchCaseFrame,
   LearnedOutcomes,
+  RazorpayStatus as RazorpayStatusType,
   BatchSummary,
   DashboardResult,
   PaymentEventPayload,
@@ -132,6 +134,8 @@ export default function App() {
   const [abRunning, setAbRunning] = useState(false);
   const [abError, setAbError] = useState<string | null>(null);
   const { toasts, push: pushToast, dismiss: dismissToast } = useToast();
+  const [rzp, setRzp] = useState<RazorpayStatusType | null>(null);
+  const [rzpChecking, setRzpChecking] = useState(false);
   const [batchError, setBatchError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [lastRun, setLastRun] = useState<{ count: number; seconds: number } | null>(
@@ -169,6 +173,19 @@ export default function App() {
     }
   }, []);
 
+  const checkRazorpay = useCallback(async () => {
+    setRzpChecking(true);
+    try {
+      setRzp(await fetchRazorpayStatus());
+    } catch {
+      // Null renders as "status unavailable" rather than implying a verdict
+      // the backend never gave.
+      setRzp(null);
+    } finally {
+      setRzpChecking(false);
+    }
+  }, []);
+
   const refreshAudit = useCallback(async () => {
     setAuditLoading(true);
     setAuditError(null);
@@ -188,12 +205,13 @@ export default function App() {
     refreshAudit();
     refreshRisk();
     refreshLearned();
+    checkRazorpay();
     // Ask the backend which provider is configured, so the status pill is
     // truthful before anything has been processed.
     getProvider()
       .then(setProvider)
       .catch(() => setProvider(null));
-  }, [refreshAudit, refreshRisk, refreshLearned]);
+  }, [refreshAudit, refreshRisk, refreshLearned, checkRazorpay]);
 
   async function handleRun(
     count: number,
@@ -249,7 +267,11 @@ export default function App() {
     setAbError(null);
     try {
       // Two full batches server-side; the client timeout already allows for it.
-      setAb(await runAb(30, 11));
+      // 100 rather than 30: most causes authorise exactly one action, so a
+      // 30-event batch contains no event the advisor could decide and the
+      // comparison is inconclusive by construction. At 100/seed 11 roughly a
+      // dozen events offer a genuine choice.
+      setAb(await runAb(100, 11));
     } catch (err) {
       setAbError(
         err instanceof Error ? err.message : "Failed to run the comparison",
@@ -386,6 +408,9 @@ export default function App() {
               abRunning={abRunning}
               abError={abError}
               onRunAb={handleRunAb}
+              razorpay={rzp}
+              razorpayChecking={rzpChecking}
+              onRecheckRazorpay={checkRazorpay}
             />
           )}
         </main>

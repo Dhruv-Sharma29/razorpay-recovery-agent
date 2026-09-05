@@ -2659,3 +2659,66 @@ body {
     animation: live-feed-in 200ms ease-out;
   }
 }
+
+/* --- Razorpay integration status ---------------------------------------- */
+/* Green only when a real call would actually go out. Valid credentials with
+   EXECUTOR_MODE=mock deliberately read as amber, not success. */
+.rzp__headline {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.5rem 0 0.4rem;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.rzp__dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+
+.rzp__headline[data-tone="ok"] .rzp__dot {
+  background: var(--signal-ok);
+}
+
+.rzp__headline[data-tone="hold"] .rzp__dot {
+  background: var(--signal-hold);
+}
+
+.rzp__headline[data-tone="stop"] .rzp__dot {
+  background: var(--signal-stop);
+}
+
+.rzp__detail {
+  margin: 0 0 0.8rem;
+  font-size: 0.78rem;
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+
+.rzp__facts {
+  margin: 0 0 0.9rem;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem;
+}
+
+.rzp__facts dt {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+}
+
+.rzp__facts dd {
+  margin: 0.1rem 0 0;
+  min-width: 0;
+  font-size: 0.8rem;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}

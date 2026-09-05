@@ -99,6 +99,18 @@ _FAILURE_TEMPLATES: list[dict[str, Any]] = [
         "weight": 15,
         "payment_methods": [PaymentMethod.CARD, PaymentMethod.NETBANKING],
     },
+    # --- Overdue Receivable (~10%) ---
+    # B2B invoices that were never a gateway failure at all: the money is
+    # simply late. Included because a batch that only contains gateway errors
+    # cannot demonstrate receivables recovery, and the policy for it — a
+    # 72-hour chaser rather than a retry — is one of the more distinctive
+    # decisions the engine makes.
+    {
+        "category": FailureCategory.OVERDUE_RECEIVABLE,
+        "error_codes": ["INVOICE_OVERDUE", "PAYMENT_OVERDUE"],
+        "weight": 10,
+        "payment_methods": [PaymentMethod.NETBANKING, PaymentMethod.UPI],
+    },
     # --- Unknown (~15%) ---
     {
         # Generic codes with descriptions that carry no recognizable signal, so
@@ -137,6 +149,11 @@ _DEV_DESCRIPTIONS: dict[FailureCategory, list[str]] = {
         "Charge blocked by the card-issuing institution",
         "Authorization was not granted by the issuer",
     ],
+    FailureCategory.OVERDUE_RECEIVABLE: [
+        "Invoice is past its due date and remains unpaid",
+        "Payment for this invoice is overdue",
+        "Receivable outstanding beyond agreed terms",
+    ],
     FailureCategory.AUTHENTICATION_FAILURE: [
         "Cardholder did not finish the extra verification step",
         "The additional security check was not cleared",
@@ -154,6 +171,11 @@ _DEV_DESCRIPTIONS: dict[FailureCategory, list[str]] = {
 # Held-out descriptions: a disjoint phrase pool. The held-out slice is re-worded
 # from this at write time so its prose never appears in the development set.
 _HELD_OUT_DESCRIPTIONS: dict[FailureCategory, list[str]] = {
+    FailureCategory.OVERDUE_RECEIVABLE: [
+        "Settlement for this invoice has not arrived by the agreed date",
+        "Amount remains outstanding well past the payment terms",
+        "Buyer has not settled this invoice within the credit period",
+    ],
     FailureCategory.INSUFFICIENT_FUNDS: [
         "Payment stopped because the account balance fell short",
         "Issuer reported the account could not cover the amount",

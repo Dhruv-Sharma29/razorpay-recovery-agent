@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     # bar exists to make it earn the override rather than merely have an
     # opinion. Raising this toward 1.0 approaches pure deterministic policy.
     model_action_choice_min_confidence: float = 0.7
+    # Retries for a transient NIM failure (429/5xx/timeout). Measured against
+    # the live endpoint, roughly a third of calls at concurrency 5 were shed
+    # with a 503. Set to 0 in tests so simulated failures do not sleep.
+    nim_max_retries: int = 2
     environment: str = "development"
     api_secret_key: str = ""
     # Comma-separated list of browser origins allowed to call the API.

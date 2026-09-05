@@ -15,6 +15,8 @@ from typing import Any
 
 import httpx
 
+from app.nim_retry import with_retries
+
 from app.classifier.result import ClassificationResult
 from app.config import settings
 from app.models.payment_event import FailedTransactionEvent, FailureCategory
@@ -27,7 +29,7 @@ from app.recommendation.result import (
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_TIMEOUT = 15.0
+_DEFAULT_TIMEOUT = 30.0
 _PROMPT_VERSION = "1.2.0"
 
 _SYSTEM_PROMPT = """\
@@ -304,12 +306,17 @@ class RecoveryRecommender:
 
         try:
             started = time.perf_counter()
-            response = self._client.post(
-                f"{self._base_url}/chat/completions",
-                headers=headers,
-                json=payload,
-            )
-            response.raise_for_status()
+            def _send() -> httpx.Response:
+                sent = self._client.post(
+                    f"{self._base_url}/chat/completions",
+                    headers=headers,
+                    json=payload,
+                )
+                # Raise inside the retry so a 503 is retried, not returned.
+                sent.raise_for_status()
+                return sent
+
+            response = with_retries(_send, label="NIM recommendation")
             latency_ms = int((time.perf_counter() - started) * 1000)
             return _parse_response(response.json(), self._model, latency_ms)
         except httpx.TimeoutException:

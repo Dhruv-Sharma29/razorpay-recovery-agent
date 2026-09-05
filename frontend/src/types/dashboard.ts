@@ -249,6 +249,39 @@ export interface AbArm {
   actions_chosen_by_model?: number;
 }
 
+/** Response from GET /api/dashboard/razorpay-check */
+export interface RazorpayStatus {
+  status:
+    | "ok"
+    | "not_configured"
+    | "live_key_refused"
+    | "unauthorized"
+    | "unreachable"
+    | "error";
+  detail: string;
+  executor_mode: string;
+  /** False when credentials work but EXECUTOR_MODE is still "mock". */
+  live_calls_enabled: boolean;
+  key_configured: boolean;
+  /** Masked — never the full id, never the secret. */
+  key_id: string;
+  test_mode: boolean;
+  reachable: boolean;
+  payments_visible?: number;
+  checked_at: string;
+}
+
+/** Why the advisor did or did not influence a run. */
+export interface AdvisorDiagnosis {
+  /** Events where policy authorised more than one action — the ceiling on
+   *  anything the advisor could possibly change. */
+  events_with_alternatives: number;
+  model_answers: number;
+  proposed_change: number;
+  blocked_by_confidence: number;
+  applied: number;
+}
+
 /** Response from POST /api/dashboard/run-ab */
 export interface AbResult {
   count_per_arm: number;
@@ -262,6 +295,7 @@ export interface AbResult {
   };
   /** False when the advisor made no choices, so the arms are identical. */
   conclusive: boolean;
+  advisor?: AdvisorDiagnosis;
   note?: string;
 }
 

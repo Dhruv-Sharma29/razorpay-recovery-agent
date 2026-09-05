@@ -62,6 +62,7 @@ EXPECTED_CATEGORIES = {
     "bank_decline",
     "authentication_failure",
     "unknown",
+    "overdue_receivable",
 }
 
 
